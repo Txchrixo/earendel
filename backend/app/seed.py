@@ -258,79 +258,79 @@ async def run(action_registry) -> dict[str, str]:
         # Already seeded — return the existing action ids for the frontend.
         return {a.name: a.id for a in action_registry.list()}
 
-    # 1. Connectors
-    acme = await create_connector(
-        "Acme Supplier Portal", "Acme Supplier Portal", "supplier-portal.acme.com",
+    # 1. Connectors — mapped to real public APIs
+    stripe = await create_connector(
+        "Stripe API", "Stripe", "api.stripe.com",
         "downloadInvoice", WorkflowCategory.finance, PermissionScope.read_only,
-        RiskLevel.low, ["supplier-portal.acme.com"], "password")
-    maersk = await create_connector(
-        "Maersk Freight Portal", "Maersk Freight Portal", "my.maersk.com",
+        RiskLevel.low, ["api.stripe.com"], "api_key")
+    openmeteo = await create_connector(
+        "Open-Meteo API", "Open-Meteo", "api.open-meteo.com",
         "trackShipment", WorkflowCategory.logistics, PermissionScope.read_only,
-        RiskLevel.low, ["my.maersk.com"], "sso")
-    bluecross = await create_connector(
-        "BlueCross Payer Portal", "BlueCross Payer Portal", "provider.bluecross.com",
+        RiskLevel.low, ["api.open-meteo.com"], "api_key")
+    jsonplaceholder = await create_connector(
+        "JSONPlaceholder API", "JSONPlaceholder", "jsonplaceholder.typicode.com",
         "checkClaimStatus", WorkflowCategory.healthcare, PermissionScope.read_only,
-        RiskLevel.medium, ["provider.bluecross.com"], "sso")
-    amazon = await create_connector(
-        "Amazon Seller Central", "Amazon Seller Central", "sellercentral.amazon.com",
+        RiskLevel.medium, ["jsonplaceholder.typicode.com"], "api_key")
+    coingecko = await create_connector(
+        "CoinGecko API", "CoinGecko", "api.coingecko.com",
         "downloadMarketplaceReport", WorkflowCategory.ecommerce,
         PermissionScope.read_only, RiskLevel.low,
-        ["sellercentral.amazon.com"], "oauth")
-    greenhouse = await create_connector(
-        "Greenhouse Recruiting", "Greenhouse Recruiting", "app.greenhouse.io",
+        ["api.coingecko.com"], "api_key")
+    pokeapi = await create_connector(
+        "PokeAPI", "PokeAPI", "pokeapi.co",
         "exportNewCandidates", WorkflowCategory.hr, PermissionScope.read_write,
-        RiskLevel.medium, ["app.greenhouse.io"], "api_key")
-    drata = await create_connector(
-        "Drata Compliance Portal", "Drata Compliance Portal", "app.drata.com",
+        RiskLevel.medium, ["pokeapi.co"], "api_key")
+    hackernews = await create_connector(
+        "Hacker News API", "Hacker News", "hacker-news.firebaseio.com",
         "fillSecurityQuestionnaire", WorkflowCategory.compliance,
-        PermissionScope.submit, RiskLevel.high, ["app.drata.com"], "sso")
+        PermissionScope.submit, RiskLevel.high, ["hacker-news.firebaseio.com"], "api_key")
 
     # 2. Recordings (for connectors 1 and 2)
-    rec_acme = simulate_recording(acme.id, "downloadInvoice")
-    rec_acme.status = "compiled"
-    await put_recording(rec_acme)
-    rec_maersk = simulate_recording(maersk.id, "trackShipment")
-    rec_maersk.status = "compiled"
-    await put_recording(rec_maersk)
+    rec_stripe = simulate_recording(stripe.id, "downloadInvoice")
+    rec_stripe.status = "compiled"
+    await put_recording(rec_stripe)
+    rec_meteo = simulate_recording(openmeteo.id, "trackShipment")
+    rec_meteo.status = "compiled"
+    await put_recording(rec_meteo)
 
     # 3. Published TypedActions
     invoice_action = await _build_action(
-        acme, "downloadInvoice", "downloadInvoice(invoiceId: string)",
-        "Download a supplier invoice PDF from the Acme supplier portal.",
+        stripe, "downloadInvoice", "downloadInvoice(invoiceId: string)",
+        "Download an invoice via the Stripe API (test mode).",
         _contract_invoice(),
         [AdapterType.api, AdapterType.internal_route, AdapterType.browser],
         AdapterType.api)
     shipment_action = await _build_action(
-        maersk, "trackShipment", "trackShipment(carrier: string, trackingNumber: string)",
-        "Track a Maersk shipment and return current status + ETA.",
+        openmeteo, "trackShipment", "trackShipment(carrier: string, trackingNumber: string)",
+        "Track shipment conditions via the Open-Meteo weather API.",
         _contract_shipment(),
         [AdapterType.api, AdapterType.browser, AdapterType.vision],
         AdapterType.api)
     claim_action = await _build_action(
-        bluecross, "checkClaimStatus",
+        jsonplaceholder, "checkClaimStatus",
         "checkClaimStatus(patientId: string, claimId: string)",
-        "Check the status of an insurance claim on the BlueCross payer portal.",
+        "Check claim status via the JSONPlaceholder API.",
         _contract_claim(),
         [AdapterType.internal_route, AdapterType.browser],
         AdapterType.internal_route)
     marketplace_action = await _build_action(
-        amazon, "downloadMarketplaceReport",
+        coingecko, "downloadMarketplaceReport",
         "downloadMarketplaceReport(marketplace: string, reportType: string, dateRange: string)",
-        "Download a settlement, returns, inventory or sales report from Amazon Seller Central.",
+        "Download a market report via the CoinGecko API.",
         _contract_marketplace_report(),
         [AdapterType.api, AdapterType.internal_route, AdapterType.browser],
         AdapterType.api)
     candidates_action = await _build_action(
-        greenhouse, "exportNewCandidates",
+        pokeapi, "exportNewCandidates",
         "exportNewCandidates(jobId: string, source?: string)",
-        "Export new candidates for a job from Greenhouse, deduplicated against the ATS.",
+        "Export candidate data via the PokeAPI.",
         _contract_candidates(),
         [AdapterType.api, AdapterType.browser],
         AdapterType.api)
     questionnaire_action = await _build_action(
-        drata, "fillSecurityQuestionnaire",
+        hackernews, "fillSecurityQuestionnaire",
         "fillSecurityQuestionnaire(portalUrl: string, knowledgeBaseId: string)",
-        "Pre-fill a vendor security questionnaire on Drata from the company knowledge base. "
+        "Pre-fill a questionnaire via the Hacker News API. "
         "Submits a draft for human review — never auto-submits.",
         _contract_questionnaire(),
         [AdapterType.browser, AdapterType.vision, AdapterType.human],
