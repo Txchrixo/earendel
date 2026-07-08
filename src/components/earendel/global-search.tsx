@@ -36,6 +36,25 @@ export function GlobalSearch() {
   const openAction = useStudio((s) => s.openAction);
   const openConnector = useStudio((s) => s.openConnector);
   const openExecution = useStudio((s) => s.openExecution);
+  const openRecording = useStudio((s) => s.openRecording);
+
+  // ⌘K / Ctrl+K keyboard shortcut to focus the search.
+  React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+        inputRef.current?.select();
+        setOpen(true);
+      }
+      if (e.key === "Escape" && document.activeElement === inputRef.current) {
+        inputRef.current?.blur();
+        setOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   // Debounced search.
   React.useEffect(() => {
@@ -88,10 +107,14 @@ export function GlobalSearch() {
             aria-expanded={open}
             className="pl-9"
           />
-          {query && (
+          {query ? (
             <span className="absolute right-2 top-1/2 -translate-y-1/2 er-caption text-muted-foreground/60">
               {loading ? "…" : totalHits > 0 ? totalHits : "0"}
             </span>
+          ) : (
+            <kbd className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-5 items-center gap-0.5 rounded border border-border bg-secondary px-1.5 font-mono text-[10px] text-muted-foreground">
+              <span className="text-[9px]">⌘</span>K
+            </kbd>
           )}
         </div>
       </PopoverTrigger>
@@ -205,7 +228,7 @@ export function GlobalSearch() {
                         key={r.id}
                         value={`recording-${r.id}`}
                         onSelect={() => {
-                          useStudio.setState({ view: "recorder" });
+                          openRecording(r.id);
                           setOpen(false);
                           setQuery("");
                         }}

@@ -38,6 +38,7 @@ const VIEW_META: Record<StudioView, { title: string; subtitle: string }> = {
   connectors: { title: "Connectors", subtitle: "Authorised business apps" },
   "connector-detail": { title: "Connector", subtitle: "Bridge details, actions and recent runs" },
   recorder: { title: "Recorder", subtitle: "Capture a human workflow" },
+  "recording-detail": { title: "Recording", subtitle: "Captured workflow steps and compile status" },
   actions: { title: "Actions", subtitle: "Typed action catalog" },
   "action-detail": { title: "Action detail", subtitle: "Contract, tests, versions, runs" },
   executions: { title: "Executions", subtitle: "Live and historical runs" },

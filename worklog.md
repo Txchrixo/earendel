@@ -673,3 +673,48 @@ Task: Continuous QA + extended search (recordings + repairs) + dashboard activit
    - Dashboard: make the activity feed filterable (by event type).
    - A keyboard shortcut (⌘K) to focus the global search.
 5. **Cron stability**: services stayed up throughout this round. The cron job should continue to restart via `python3 /home/z/my-project/start_services.py` if health checks fail.
+
+---
+Task ID: 15
+Agent: cron-webDevReview (round 10)
+Task: Continuous QA + recording-detail view + ⌘K search shortcut + activity feed filter + search recording navigation.
+
+## Current project status assessment
+- Services: Next.js (3000) + FastAPI (8001) + Caddy (81) all healthy, daemonized via `start_services.py`.
+- QA sweep across all 9 views: zero console errors, zero console warnings. Dashboard shows 6 connectors / 5 published actions / 10 executions / 70% success.
+- Round 9 delivered: extended search (recordings + repairs), dashboard activity feed, CSV export button. All still working.
+- VLM (glm-4.6v) rated the dashboard 8/10, monitoring 8/10, recording-detail 8/10.
+
+## Completed modifications
+1. **Recording-detail view** (new `recording-detail-view.tsx`):
+   - New view accessible via `openRecording(id)` from the global search (recording results) and the activity feed (recording events). Added `recording-detail` to StudioView + store (`selectedRecordingId` + `openRecording`) + VIEW_META + page router.
+   - Shows: header (back button, gradient recorder icon, recording name, status dot + step count + total duration, "View compiled action" button if compiled or "Compile to action" button if not), 5 signal summary tiles (Steps, Network, DOM mut., Screenshots, HAR), "Captured steps" section (numbered gradient tiles + per-type Octicon + description + type badge + selector/URL + network call count + duration), and a Connector context card with "View connector" button.
+   - The "Compile to action" button calls `api.compileRecording` and navigates to the action detail on success.
+   - Verified: searched "compiled" → clicked downloadInvoice recording → recording-detail renders with "downloadInvoice · 10 steps · 2110ms captured", 5 signal tiles (10, 3, 5, 5, yes), 10 captured steps (open supplier portal/Navigate, enter username/Input input[name=email], etc.), connector card (Acme Supplier Portal).
+2. **⌘K / Ctrl+K keyboard shortcut** (in `global-search.tsx`):
+   - Added a window keydown listener: ⌘K (Mac) or Ctrl+K (other) focuses the search input, selects its text, and opens the popover. Escape blurs the input and closes the popover.
+   - Added a ⌘K kbd hint badge in the search input (visible when the query is empty, replaced by the hit count when typing).
+   - Verified: dispatched a KeyboardEvent with metaKey=true + key='k' → search input focused (shortcut works).
+3. **Activity feed filter by event type** (in `dashboard-sections.tsx`):
+   - Added a segmented filter toggle (All / Executions / Versions / Repairs / Recordings) in the ActivityFeedSection header. Each button has an icon + label (label hidden on mobile). Active filter = bg-primary; inactive = muted. Filters the events client-side; shows "No {filter} events." empty state when the filtered list is empty.
+   - Also made recording events clickable (navigate to the new recording-detail view via openRecording).
+   - Verified: clicked "Versions" → feed shows only version-bump events (fillSecurityQuestionnaire v1.2.0, exportNewCandidates v1.2.0, downloadMarketplaceReport v1.2.0, all "Latest").
+4. **Search recording navigation**: updated GlobalSearch's recording onSelect to call `openRecording(r.id)` (navigates to recording-detail) instead of the generic `setView("recorder")`.
+
+## Verification results
+- `bun run lint` → 0 errors, 0 warnings.
+- dev.log: clean compiles. backend.log: clean, all endpoints 200.
+- agent-browser: ⌘K shortcut focuses search (verified via dispatched event); search "compiled" → recording results → click → recording-detail renders (10 steps, signal tiles, connector card); activity feed "Versions" filter shows only version events. Zero console errors.
+- VLM rated the recording-detail view 8/10: "Numbered workflow tiles with step types concisely map the Earendel pipeline's stages."
+
+## Unresolved issues / risks + next-phase recommendations
+1. **executions-sections.tsx + publishing-view.tsx still large** (~850 + ~700 lines): code-health split recommended since round 5. Deferred again this round (focused on recording-detail + shortcut + filter). Should be the priority next round — it's the longest-standing recommendation.
+2. **Recording-detail "Compile to action" uses the LLM**: clicking it calls the LLM-backed compile endpoint (~4s). No loading spinner on the button beyond the text change. Could add a spinner.
+3. **Activity feed filter is client-side**: filters the 12 returned events. If a filter has 0 events in the top-12, it shows "No {filter} events" even if older events exist. Acceptable for a "recent" feed.
+4. **Next-phase feature priorities** (ranked):
+   - **Split executions-sections.tsx + publishing-view.tsx into focused helper files** (code health — deferred 5 rounds, highest priority).
+   - Connector detail: "Run all canaries" button that triggers canaries for all the connector's actions.
+   - Recording-detail: add a "Replay recording" button that re-runs the compiled action with sample inputs.
+   - Dashboard: a "system status" banner at the very top when /readyz is not ready.
+   - A settings/profile view (currently the Account button is decorative).
+5. **Cron stability**: services stayed up throughout this round. The cron job should continue to restart via `python3 /home/z/my-project/start_services.py` if health checks fail.

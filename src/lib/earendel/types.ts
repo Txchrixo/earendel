@@ -331,6 +331,7 @@ export type StudioView =
   | "connectors"
   | "connector-detail"
   | "recorder"
+  | "recording-detail"
   | "actions"
   | "action-detail"
   | "executions"

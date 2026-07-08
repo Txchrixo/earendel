@@ -8,10 +8,12 @@ interface StudioState {
   selectedActionId: string | null;
   selectedConnectorId: string | null;
   selectedExecutionId: string | null;
+  selectedRecordingId: string | null;
   setView: (v: StudioView) => void;
   openAction: (id: string) => void;
   openConnector: (id: string) => void;
   openExecution: (id: string) => void;
+  openRecording: (id: string) => void;
 }
 
 export const useStudio = create<StudioState>((set) => ({
@@ -19,8 +21,10 @@ export const useStudio = create<StudioState>((set) => ({
   selectedActionId: null,
   selectedConnectorId: null,
   selectedExecutionId: null,
+  selectedRecordingId: null,
   setView: (view) => set({ view }),
   openAction: (id) => set({ view: "action-detail", selectedActionId: id }),
   openConnector: (id) => set({ view: "connector-detail", selectedConnectorId: id }),
   openExecution: (id) => set({ view: "executions", selectedExecutionId: id }),
+  openRecording: (id) => set({ view: "recording-detail", selectedRecordingId: id }),
 }));

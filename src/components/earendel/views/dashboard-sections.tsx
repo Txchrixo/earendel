@@ -602,11 +602,25 @@ export function ActivityFeedSection() {
   );
   const openAction = useStudio((s) => s.openAction);
   const openExecution = useStudio((s) => s.openExecution);
+  const openRecording = useStudio((s) => s.openRecording);
+  const [filter, setFilter] = React.useState<"all" | "execution" | "repair" | "recording" | "version">("all");
 
   const handleNavigate = (e: ActivityEvent) => {
     if (e.refType === "execution") openExecution(e.refId);
     else if (e.refType === "action") openAction(e.refId);
+    else if (e.refType === "recording") openRecording(e.refId);
   };
+
+  const allEvents = data?.events ?? [];
+  const filtered = filter === "all" ? allEvents : allEvents.filter((e) => e.type === filter);
+
+  const FILTERS: { key: typeof filter; label: string; icon: ErIconName }[] = [
+    { key: "all", label: "All", icon: "tasklist" },
+    { key: "execution", label: "Executions", icon: "executions" },
+    { key: "version", label: "Versions", icon: "versions" },
+    { key: "repair", label: "Repairs", icon: "wrench" },
+    { key: "recording", label: "Recordings", icon: "recorder" },
+  ];
 
   return (
     <section>
@@ -614,6 +628,26 @@ export function ActivityFeedSection() {
         icon="history"
         title="Recent activity"
         subtitle="Last events across executions, repairs, recordings, and versions"
+        action={
+          <div className="flex items-center gap-1 rounded-md border border-border p-0.5">
+            {FILTERS.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => setFilter(f.key)}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded px-2 py-0.5 er-caption transition-colors",
+                  filter === f.key
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Icon name={f.icon} size={10} aria-hidden />
+                <span className="hidden sm:inline">{f.label}</span>
+              </button>
+            ))}
+          </div>
+        }
       />
       <Card className="er-card-raised overflow-hidden p-0">
         {error ? (
@@ -626,14 +660,16 @@ export function ActivityFeedSection() {
               <Skeleton key={i} className="h-10 w-full" />
             ))}
           </div>
-        ) : (data?.events.length ?? 0) === 0 ? (
-          <p className="er-caption text-muted-foreground p-4 text-center">No recent activity.</p>
+        ) : filtered.length === 0 ? (
+          <p className="er-caption text-muted-foreground p-4 text-center">
+            {allEvents.length === 0 ? "No recent activity." : `No ${filter} events.`}
+          </p>
         ) : (
           <ol className="divide-y divide-border">
-            {data!.events.map((e, i) => {
+            {filtered.map((e, i) => {
               const icon = ACTIVITY_ICON[e.type] ?? "dot";
               const pill = ACTIVITY_STATUS_PILL[e.status] ?? "er-pill-neutral";
-              const clickable = e.refType === "execution" || e.refType === "action";
+              const clickable = e.refType === "execution" || e.refType === "action" || e.refType === "recording";
               return (
                 <li
                   key={`${e.type}-${e.refId}-${i}`}
