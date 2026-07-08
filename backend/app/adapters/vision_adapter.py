@@ -84,8 +84,8 @@ class VisionAdapter(ExecutionAdapter):
                     message="grounding confidence 0.41 < 0.6 threshold",
                     step="ground", durationMs=240))
                 return AdapterResult(
-                    False, {}, traces, ["vision-1.png"], 1400,
-                    "grounding confidence too low — no matching element found")
+                    False, {}, traces, ["vision-1.png"],
+                    "grounding confidence too low — no matching element found", 1400)
 
             confidence = target.get("confidence", 0.85)
             traces.append(TraceEvent(
@@ -205,7 +205,7 @@ class VisionAdapter(ExecutionAdapter):
                 ts=ts, adapter=AdapterType.vision, level="error",
                 message="grounding confidence 0.41 < 0.6 threshold",
                 step="ground"))
-            return AdapterResult(False, {}, traces, ["vision-1.png"], 1400,
-                                 "grounding confidence too low")
+            return AdapterResult(False, {}, traces, ["vision-1.png"],
+                                 "grounding confidence too low", 1400)
         return AdapterResult(True, _simulate_outputs(action, inputs), traces,
                              ["vision-1.png"], None, 1400)
