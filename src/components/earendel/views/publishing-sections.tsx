@@ -110,7 +110,7 @@ function McpTab({ tool }: { tool: RichPublishedTool }) {
             <Icon name="copy" size={14} aria-hidden />
             <h4 className="text-sm font-medium">Add to your MCP registry</h4>
           </div>
-          <Button size="sm" variant="outline" onClick={copyRegistry}>
+          <Button size="sm" variant="outline" className="rounded-full" onClick={copyRegistry}>
             <Icon name="copy" size={12} aria-hidden /> Copy snippet
           </Button>
         </div>

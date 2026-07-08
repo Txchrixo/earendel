@@ -132,9 +132,7 @@ export function InteractiveAgentPreview() {
       <div className="hidden w-56 shrink-0 flex-col border-r border-border bg-sidebar sm:flex">
         <div className="border-b border-border p-3">
           <div className="flex items-center gap-2 mb-2">
-            <span className="grid size-6 place-items-center rounded bg-primary text-primary-foreground">
-              <Icon name="telescope" size={14} aria-hidden />
-            </span>
+            <Icon name="telescope" size={14} className="text-foreground" aria-hidden />
             <span className="font-heading text-sm">Earendel</span>
           </div>
           <div className="relative">
@@ -285,6 +283,7 @@ export function InteractiveAgentPreview() {
             />
             <Button
               size="sm"
+              className="rounded-full"
               onClick={() => input.trim() && !running && runAgent(input)}
               disabled={running || !input.trim()}
             >

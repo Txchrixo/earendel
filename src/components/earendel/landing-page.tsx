@@ -307,9 +307,7 @@ export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
       <footer className="mx-auto max-w-[1230px] px-6 py-8">
         <div className="flex flex-col items-center justify-between gap-4 md:flex-row">
           <div className="flex items-center gap-2">
-            <span className="grid size-6 place-items-center rounded bg-primary text-primary-foreground">
-              <Icon name="telescope" size={14} aria-hidden />
-            </span>
+            <Icon name="telescope" size={14} className="text-foreground" aria-hidden />
             <span className="er-caption text-muted-foreground">Earendel · v0.1.0</span>
           </div>
           <div className="flex items-center gap-4 er-caption text-muted-foreground">

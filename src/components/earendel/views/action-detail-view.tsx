@@ -140,7 +140,7 @@ function PublishDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={publishing}>
             Cancel
           </Button>
-          <Button onClick={confirm} disabled={publishing}>
+          <Button className="rounded-full" onClick={confirm} disabled={publishing}>
             <Icon name="publishing" size={14} aria-hidden />
             {publishing ? "Publishing…" : "Approve and publish"}
           </Button>
@@ -192,10 +192,10 @@ function Header({ action, refetch }: { action: TypedAction; refetch: () => void 
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setView("playground")}>
+          <Button variant="outline" className="rounded-full" onClick={() => setView("playground")}>
             <Icon name="playground" size={14} aria-hidden /> Run
           </Button>
-          <Button onClick={() => setPublishOpen(true)}>
+          <Button className="rounded-full" onClick={() => setPublishOpen(true)}>
             <Icon name="publishing" size={14} aria-hidden /> Publish
           </Button>
         </div>

@@ -50,10 +50,10 @@ export function Hero() {
           engine that validates, repairs and publishes as MCP / REST / SDK.
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
-          <Button size="lg" onClick={() => setView("recorder")}>
+          <Button size="lg" className="rounded-full" onClick={() => setView("recorder")}>
             <Icon name="recorder" size={16} aria-hidden /> Record a workflow
           </Button>
-          <Button size="lg" variant="outline" onClick={() => setView("actions")}>
+          <Button size="lg" variant="outline" className="rounded-full" onClick={() => setView("actions")}>
             <Icon name="actions" size={16} aria-hidden /> Browse actions
           </Button>
         </div>
@@ -436,6 +436,7 @@ export function OpenRepairsSection() {
                   </div>
                   <Button
                     size="sm"
+                    className="rounded-full"
                     onClick={() => approve(r.id)}
                     disabled={resolvingId === r.id}
                   >

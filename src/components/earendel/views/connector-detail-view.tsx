@@ -78,7 +78,7 @@ export function ConnectorDetailView() {
           title="No connector selected"
           description="Pick a connector from the catalog to inspect its bridge details."
           action={
-            <Button variant="outline" size="sm" onClick={() => setView("connectors")}>
+            <Button variant="outline" size="sm" className="rounded-full" onClick={() => setView("connectors")}>
               <Icon name="arrowRight" size={14} aria-hidden /> Browse connectors
             </Button>
           }
@@ -236,21 +236,21 @@ export function ConnectorDetailView() {
           <div className="flex flex-col gap-2">
             <Button
               variant="outline"
-              className="justify-start"
+              className="justify-start rounded-full"
               onClick={() => setView("recorder")}
             >
               <Icon name="recorder" size={16} aria-hidden /> Record a new workflow
             </Button>
             <Button
               variant="outline"
-              className="justify-start"
+              className="justify-start rounded-full"
               onClick={() => setView("actions")}
             >
               <Icon name="actions" size={16} aria-hidden /> Browse compiled actions
             </Button>
             <Button
               variant="outline"
-              className="justify-start"
+              className="justify-start rounded-full"
               onClick={() => setView("executions")}
             >
               <Icon name="executions" size={16} aria-hidden /> View executions
@@ -320,6 +320,7 @@ export function ConnectorDetailView() {
                   <Button
                     size="sm"
                     variant="outline"
+                    className="rounded-full"
                     onClick={(e) => {
                       e.stopPropagation();
                       openAction(a.id);
@@ -329,6 +330,7 @@ export function ConnectorDetailView() {
                   </Button>
                   <Button
                     size="sm"
+                    className="rounded-full"
                     onClick={(e) => {
                       e.stopPropagation();
                       useStudio.setState({ selectedActionId: a.id, view: "playground" });

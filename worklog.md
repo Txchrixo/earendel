@@ -1013,3 +1013,32 @@ Stage Summary:
 - src/components/earendel/views/action-detail-dependencies.tsx — created, 192 lines.
 - src/components/earendel/views/action-detail-sections.tsx — slimmed from 1057 to 95 lines (ExecutionsTab + re-exports).
 - Total: 1130 lines across 7 files vs. 1057 in the original (small overhead from per-file imports/headers).
+
+---
+Task ID: STYLE-SWEEP
+Agent: style-sweep
+Task: Global style sweep — rounded-full buttons + plain logo icon everywhere.
+
+Work Log:
+- Read all 25 target files in src/components/earendel/ and src/app/auth/ to inventory every <Button> and every telescope-in-card logo pattern.
+- Change 2/3 (Logo — remove card/box): Replaced the `<span className="grid size-X place-items-center rounded-md bg-primary text-primary-foreground"><Icon name="telescope" .../></span>` wrapper with a bare `<Icon name="telescope" size={X} className="text-foreground" aria-hidden />` in 5 files:
+  * src/components/earendel/app-shell.tsx (Wordmark, size-9/telescope 20)
+  * src/app/auth/signin/page.tsx (top logo, size-12/telescope 24)
+  * src/app/auth/signup/page.tsx (top logo, size-12/telescope 24)
+  * src/components/earendel/landing-page.tsx (footer logo, size-6/telescope 14)
+  * src/components/earendel/interactive-agent-preview.tsx (sidebar mini-logo, size-6/telescope 14)
+- Change 1 (rounded-full on Buttons): Walked every <Button> in all 25 files. Added `rounded-full` to every non-ghost, non-icon Button that didn't already have it. Skipped per the exceptions:
+  * variant="ghost" buttons (left as-is; some already had rounded-full)
+  * size="icon" buttons (notifications, account, back buttons, mobile nav trigger)
+  * CodeBlock copy button in primitives.tsx (explicit exception; also variant=ghost)
+  * A/B compare toggle buttons in action-detail-versions.tsx (variant is dynamic between "default" and "ghost")
+  * Files with no Button components: publishing-view.tsx, publishing-registry.tsx, risk-gate-dialog.tsx (uses AlertDialog primitives, not Button)
+- Verified all edits via ripgrep audits of <Button occurrences per file.
+- Ran `bun run lint` — exit code 0, zero errors.
+
+Stage Summary:
+- Files modified: 18 of the 25 inspected.
+- Logo card/box removed in 5 files (Change 2 + Change 3).
+- rounded-full added to ~40 Button instances across 16 files (Change 1).
+- Skipped files (no Button changes needed): primitives.tsx (only the excepted CodeBlock ghost button), publishing-view.tsx (no Buttons), publishing-registry.tsx (no Buttons), risk-gate-dialog.tsx (uses AlertDialog, not Button), landing-page.tsx (all Buttons already had rounded-full — only the footer logo was changed).
+- `bun run lint` passes with 0 errors.

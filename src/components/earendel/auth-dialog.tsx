@@ -88,9 +88,7 @@ export function AuthDialog() {
       <DialogContent className="max-w-sm border-border bg-card">
         <DialogHeader>
           <div className="mb-2 flex items-center gap-2">
-            <span className="grid size-8 place-items-center rounded-md bg-primary text-primary-foreground">
-              <Icon name="telescope" size={18} aria-hidden />
-            </span>
+            <Icon name="telescope" size={18} className="text-foreground" aria-hidden />
             <DialogTitle className="font-heading text-xl">Earendel</DialogTitle>
           </div>
           <DialogDescription>
@@ -138,7 +136,7 @@ export function AuthDialog() {
             />
           </div>
 
-          <Button type="submit" className="w-full" disabled={loading}>
+          <Button type="submit" className="w-full rounded-full" disabled={loading}>
             {loading ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
           </Button>
         </form>
@@ -149,7 +147,7 @@ export function AuthDialog() {
           <Separator className="flex-1" />
         </div>
 
-        <Button variant="outline" className="w-full" onClick={handleDemo}>
+        <Button variant="outline" className="w-full rounded-full" onClick={handleDemo}>
           <Icon name="person" size={14} aria-hidden /> Continue as demo
         </Button>
 

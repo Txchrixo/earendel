@@ -84,7 +84,7 @@ export function ActionsView() {
         title="Typed Actions"
         subtitle="Compiled, versioned, risk-gated business verbs your agents can call."
         action={
-          <Button onClick={() => setView("recorder")}>
+          <Button className="rounded-full" onClick={() => setView("recorder")}>
             <Icon name="recorder" size={16} aria-hidden /> New recording
           </Button>
         }
@@ -166,7 +166,7 @@ export function ActionsView() {
           title="Backend connecting…"
           description="Your typed actions will appear here once the FastAPI service is reachable."
           action={
-            <Button variant="outline" size="sm" onClick={refetch}>
+            <Button variant="outline" size="sm" className="rounded-full" onClick={refetch}>
               <Icon name="sync" size={14} aria-hidden /> Retry
             </Button>
           }
@@ -190,7 +190,7 @@ export function ActionsView() {
           title="No actions match"
           description="Adjust filters or record a new workflow to compile an action."
           action={
-            <Button size="sm" onClick={() => setView("recorder")}>
+            <Button size="sm" className="rounded-full" onClick={() => setView("recorder")}>
               <Icon name="recorder" size={14} aria-hidden /> Record workflow
             </Button>
           }

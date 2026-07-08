@@ -165,7 +165,7 @@ function CanaryBoard() {
           <Icon name="beaker" size={14} className="text-accent" aria-hidden />
           <h3 className="er-h3">Canary board</h3>
         </div>
-        <Button size="sm" variant="outline" onClick={runAll} disabled={running || !data}>
+        <Button size="sm" variant="outline" className="rounded-full" onClick={runAll} disabled={running || !data}>
           <Icon name="sync" size={12} aria-hidden />
           {running ? "Queuing…" : "Run all canaries"}
         </Button>
@@ -327,12 +327,13 @@ function RepairCard({
         />
         {r.status === "pending" && (
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => setDialogOpen(true)} disabled={busy}>
+            <Button size="sm" className="rounded-full" onClick={() => setDialogOpen(true)} disabled={busy}>
               <Icon name="eye" size={12} aria-hidden /> Review &amp; patch
             </Button>
             <Button
               size="sm"
               variant="outline"
+              className="rounded-full"
               onClick={() => handle("rejected")}
               disabled={busy}
             >
@@ -482,6 +483,7 @@ function ReliabilityTrend() {
           <Button
             size="sm"
             variant="outline"
+            className="rounded-full"
             onClick={() => {
               window.open(
                 `/api/v1/monitoring/timeseries.csv?XTransformPort=8001&hours=24`,

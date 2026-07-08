@@ -69,7 +69,7 @@ export function DependenciesTab({ action }: { action: TypedAction }) {
             </div>
             <Badge className="er-pill-neutral capitalize">{connector.authMethod}</Badge>
             <RiskBadge level={connector.riskLevel} />
-            <Button size="sm" variant="outline" onClick={() => openConnector(connector.id)}>
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => openConnector(connector.id)}>
               <Icon name="eye" size={12} aria-hidden /> View
             </Button>
           </div>

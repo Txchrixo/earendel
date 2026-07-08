@@ -210,7 +210,7 @@ export function ProposeRepairButton({
     }
   };
   return (
-    <Button size="sm" variant="outline" onClick={handle} disabled={loading}>
+    <Button size="sm" variant="outline" className="rounded-full" onClick={handle} disabled={loading}>
       <Icon name="wrench" size={12} aria-hidden />
       {loading ? "Proposing…" : "Propose repair"}
     </Button>

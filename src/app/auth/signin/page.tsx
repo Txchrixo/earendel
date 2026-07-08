@@ -52,9 +52,7 @@ export default function SignInPage() {
       <Card className="w-full max-w-sm p-8">
         {/* Logo */}
         <div className="mb-8 flex flex-col items-center gap-3">
-          <span className="grid size-12 place-items-center rounded-md bg-primary text-primary-foreground">
-            <Icon name="telescope" size={24} aria-hidden />
-          </span>
+          <Icon name="telescope" size={24} className="text-foreground" aria-hidden />
           <h1 className="er-h2 font-heading">Welcome back</h1>
           <p className="er-caption text-muted-foreground text-center">
             Sign in to your Earendel studio
@@ -64,7 +62,7 @@ export default function SignInPage() {
         {/* Google OAuth */}
         <Button
           variant="outline"
-          className="w-full mb-4"
+          className="w-full mb-4 rounded-full"
           onClick={handleGoogle}
           disabled={loading}
         >
@@ -109,7 +107,7 @@ export default function SignInPage() {
               required
             />
           </div>
-          <Button type="submit" className="w-full" disabled={loading}>
+          <Button type="submit" className="w-full rounded-full" disabled={loading}>
             {loading ? "Signing in…" : "Sign in"}
           </Button>
         </form>

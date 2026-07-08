@@ -47,7 +47,7 @@ export function ConnectorsView() {
           title="Backend connecting…"
           description="Your connectors will appear here once the FastAPI service is reachable."
           action={
-            <Button variant="outline" size="sm" onClick={refetch}>
+            <Button variant="outline" size="sm" className="rounded-full" onClick={refetch}>
               <Icon name="sync" size={14} aria-hidden /> Retry
             </Button>
           }

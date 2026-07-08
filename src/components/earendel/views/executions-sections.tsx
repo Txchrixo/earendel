@@ -306,13 +306,14 @@ export function ExecutionDetail() {
             <Button
               size="sm"
               variant="outline"
+              className="rounded-full"
               onClick={replayCompare}
               disabled={replaying}
             >
               <Icon name="diff" size={12} aria-hidden />
               {replaying ? "Replaying…" : "Replay & compare"}
             </Button>
-            <Button size="sm" variant="outline" onClick={rerun} disabled={rerunning}>
+            <Button size="sm" variant="outline" className="rounded-full" onClick={rerun} disabled={rerunning}>
               <Icon name="sync" size={12} aria-hidden />
               {rerunning ? "Re-running…" : "Re-run"}
             </Button>

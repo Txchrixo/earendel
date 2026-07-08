@@ -158,7 +158,7 @@ function Header() {
         <GlobalSearch />
       </div>
 
-      <Button onClick={() => setView("connectors")} className="hidden sm:inline-flex shrink-0">
+      <Button onClick={() => setView("connectors")} className="hidden sm:inline-flex shrink-0 rounded-full">
         <Icon name="plus" size={16} aria-hidden /> New
       </Button>
       <Button

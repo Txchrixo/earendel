@@ -117,7 +117,7 @@ export function VersionsTab({ action }: { action: TypedAction }) {
                 <Button
                   size="sm"
                   variant={isSelectedA ? "default" : "ghost"}
-                  className={isSelectedA ? "bg-chart-2 text-background" : ""}
+                  className={cn("rounded-full", isSelectedA ? "bg-chart-2 text-background" : "")}
                   onClick={() => setCompareA(isSelectedA ? null : v.version)}
                   aria-pressed={isSelectedA}
                   title="Set as version A for comparison"
@@ -127,7 +127,7 @@ export function VersionsTab({ action }: { action: TypedAction }) {
                 <Button
                   size="sm"
                   variant={isSelectedB ? "default" : "ghost"}
-                  className={isSelectedB ? "bg-chart-4 text-background" : ""}
+                  className={cn("rounded-full", isSelectedB ? "bg-chart-4 text-background" : "")}
                   onClick={() => setCompareB(isSelectedB ? null : v.version)}
                   aria-pressed={isSelectedB}
                   title="Set as version B for comparison"
@@ -139,6 +139,7 @@ export function VersionsTab({ action }: { action: TypedAction }) {
                 <Button
                   size="sm"
                   variant="outline"
+                  className="rounded-full"
                   onClick={() => rollback(v.version)}
                   disabled={rolling === v.version}
                 >

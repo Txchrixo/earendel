@@ -89,6 +89,7 @@ export function TestsCanaryTab({ action }: { action: TypedAction }) {
                   <Button
                     size="sm"
                     variant="outline"
+                    className="rounded-full"
                     onClick={() => runCanary(c.id)}
                     disabled={runningId === c.id}
                   >

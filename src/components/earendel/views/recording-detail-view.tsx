@@ -131,11 +131,11 @@ export function RecordingDetailView() {
         </div>
         <div className="flex flex-col items-end gap-2">
           {recording.compiledActionId ? (
-            <Button onClick={() => openAction(recording.compiledActionId!)}>
+            <Button className="rounded-full" onClick={() => openAction(recording.compiledActionId!)}>
               <Icon name="actions" size={14} aria-hidden /> View compiled action
             </Button>
           ) : (
-            <Button onClick={handleCompile} disabled={compileMut.loading}>
+            <Button className="rounded-full" onClick={handleCompile} disabled={compileMut.loading}>
               <Icon name="code" size={14} aria-hidden />
               {compileMut.loading ? "Compiling…" : "Compile to action"}
             </Button>
@@ -217,7 +217,7 @@ export function RecordingDetailView() {
                 <p className="text-sm font-medium text-foreground">{connector.name}</p>
                 <p className="er-caption text-muted-foreground font-mono">{connector.targetDomain}</p>
               </div>
-              <Button size="sm" variant="outline" onClick={() => useStudio.getState().openConnector(connector.id)}>
+              <Button size="sm" variant="outline" className="rounded-full" onClick={() => useStudio.getState().openConnector(connector.id)}>
                 <Icon name="eye" size={12} aria-hidden /> View connector
               </Button>
             </div>

@@ -87,9 +87,7 @@ export default function SignUpPage() {
       <Card className="w-full max-w-sm p-8">
         {/* Logo */}
         <div className="mb-8 flex flex-col items-center gap-3">
-          <span className="grid size-12 place-items-center rounded-md bg-primary text-primary-foreground">
-            <Icon name="telescope" size={24} aria-hidden />
-          </span>
+          <Icon name="telescope" size={24} className="text-foreground" aria-hidden />
           <h1 className="er-h2 font-heading">Create your account</h1>
           <p className="er-caption text-muted-foreground text-center">
             Start recording workflows in minutes
@@ -99,7 +97,7 @@ export default function SignUpPage() {
         {/* Google OAuth */}
         <Button
           variant="outline"
-          className="w-full mb-4"
+          className="w-full mb-4 rounded-full"
           onClick={handleGoogle}
           disabled={loading}
         >
@@ -163,7 +161,7 @@ export default function SignUpPage() {
               <p className="er-caption text-destructive">{errors.password}</p>
             )}
           </div>
-          <Button type="submit" className="w-full" disabled={loading}>
+          <Button type="submit" className="w-full rounded-full" disabled={loading}>
             {loading ? "Creating account…" : "Create account"}
           </Button>
         </form>

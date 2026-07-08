@@ -290,7 +290,7 @@ function ManualRunner({ actions }: { actions: TypedAction[] }) {
           )}
           onConfirm={run}
         >
-          <Button disabled={running}>
+          <Button className="rounded-full" disabled={running}>
             <Icon name="executions" size={14} aria-hidden />
             {running ? "Running…" : "Run action"}
           </Button>
@@ -539,7 +539,7 @@ function AgentChat({ actions }: { actions: TypedAction[] }) {
           <span className="er-caption text-muted-foreground">
             ⌘ + Enter to send
           </span>
-          <Button onClick={send} disabled={busy || !input.trim()}>
+          <Button className="rounded-full" onClick={send} disabled={busy || !input.trim()}>
             <Icon name="comment" size={14} aria-hidden />
             {busy ? "Working…" : "Send"}
           </Button>

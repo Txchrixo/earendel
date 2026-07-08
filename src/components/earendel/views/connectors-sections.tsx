@@ -182,11 +182,12 @@ export function ConnectorCard({ connector }: { connector: Connector }) {
             <Button
               size="sm"
               variant="outline"
+              className="rounded-full"
               onClick={() => openConnector(connector.id)}
             >
               <Icon name="eye" size={14} aria-hidden /> View
             </Button>
-            <Button size="sm" onClick={() => setView("recorder")}>
+            <Button size="sm" className="rounded-full" onClick={() => setView("recorder")}>
               <Icon name="recorder" size={14} aria-hidden /> Record workflow
             </Button>
           </div>
@@ -315,7 +316,7 @@ export function NewConnectorDialog({ onCreated }: { onCreated: () => void }) {
       }}
     >
       <DialogTrigger asChild>
-        <Button>
+        <Button className="rounded-full">
           <Icon name="plus" size={16} aria-hidden /> New connector
         </Button>
       </DialogTrigger>
@@ -463,7 +464,7 @@ export function NewConnectorDialog({ onCreated }: { onCreated: () => void }) {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" className="rounded-full" disabled={loading}>
               <Icon name={loading ? "sync" : "plus"} size={14} aria-hidden />
               {loading ? "Creating…" : "Create connector"}
             </Button>
