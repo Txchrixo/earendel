@@ -141,18 +141,21 @@ jobs:
         run: |
           cd backend
           python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 &
-          sleep 5
+          sleep 8
+          curl -sf http://localhost:8001/api/v1/healthz || exit 1
         env:
           EARENDEL_SEED_ON_STARTUP: "true"
 
       - name: Start Next.js
         run: |
           bun run dev &
-          sleep 10
+          sleep 15
+          curl -sf http://localhost:3000/ || exit 1
         env:
           NEXTAUTH_URL: "http://localhost:3000"
           NEXTAUTH_SECRET: "ci-test-secret-do-not-use-in-production"
           BACKEND_SECRET: "ci-test-secret-do-not-use-in-production"
+          DATABASE_URL: "file:./ci-e2e.db"
 
       - name: Run Playwright tests
         run: bunx playwright test --reporter=list
@@ -185,6 +188,11 @@ jobs:
 
       - name: Generate Prisma client
         run: bun run db:generate
+
+      - name: Push Prisma schema
+        run: bun run db:push
+        env:
+          DATABASE_URL: "file:./ci-build.db"
 
       - name: Build Next.js
         run: bun run build
