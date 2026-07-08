@@ -2,9 +2,13 @@
 
 The orchestrator is the heart of the multi-adapter execution model.
 It never raises; on total failure it escalates to human review.
+
+Emits real-time events to the execution-stream service via HTTP POST.
 """
 from __future__ import annotations
 
+import asyncio
+import httpx
 from datetime import datetime
 
 from ...adapters.base import AdapterResult, ExecutionContext
@@ -16,6 +20,21 @@ from ...infrastructure.telemetry import TraceCollector
 from ...infrastructure.vault import CredentialVault
 from ...shared.ids import new_id
 from .adapter_registry import AdapterRegistry
+
+# Execution stream service URL.
+_STREAM_URL = "http://localhost:3003"
+
+
+async def _emit_stream(execution_id: str, event: str, payload: dict) -> None:
+    """Emit a real-time event to the execution-stream service (non-blocking)."""
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            await client.post(
+                f"{_STREAM_URL}/emit",
+                json={"executionId": execution_id, "event": event, "payload": payload},
+            )
+    except Exception:
+        pass  # Stream service unavailable — don't block execution.
 
 
 class Orchestrator:
@@ -51,6 +70,15 @@ class Orchestrator:
         error: str | None = None
         post_met: bool | None = None
 
+        # Emit execution.started event.
+        await _emit_stream(run_id, "execution.started", {
+            "actionId": action.id,
+            "actionName": action.name,
+            "inputs": inputs,
+            "caller": caller.value,
+            "chain": [a.value for a in chain],
+        })
+
         # Risk gate: high/critical actions need approval unless caller is canary.
         policy = RISK_POLICY.get(action.riskLevel)
         needs_human = (
@@ -80,6 +108,16 @@ class Orchestrator:
             result: AdapterResult = await adapter.execute(action, inputs, ctx)
             traces.extend(result.traces)
             screenshots.extend(result.screenshots)
+
+            # Emit trace events in real-time.
+            for trace in result.traces:
+                await _emit_stream(run_id, "trace.appended", {
+                    "adapter": trace.adapter.value,
+                    "level": trace.level,
+                    "message": trace.message,
+                    "step": trace.step,
+                    "durationMs": trace.durationMs,
+                })
             chosen = adapter_type
             if not result.success:
                 traces.append(TraceEvent(
@@ -121,7 +159,7 @@ class Orchestrator:
             status = ExecutionStatus.human_review
 
         finished = datetime.utcnow()
-        return Execution(
+        execution = Execution(
             id=new_id("exe"), actionId=action.id, actionName=action.name,
             caller=caller, inputs=inputs, outputs=outputs, adapter=chosen,
             fallbackChain=chain, status=status, durationMs=int(
@@ -130,3 +168,15 @@ class Orchestrator:
             screenshots=screenshots, postconditionsMet=post_met,
             errorMessage=error, riskApproved=risk_approved,
         )
+
+        # Emit execution.completed event.
+        await _emit_stream(execution.id, "execution.completed", {
+            "status": execution.status.value,
+            "adapter": execution.adapter.value,
+            "durationMs": execution.durationMs,
+            "outputs": outputs,
+            "error": error,
+            "postconditionsMet": post_met,
+        })
+
+        return execution

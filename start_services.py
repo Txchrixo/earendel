@@ -47,7 +47,7 @@ def kill_pid(pid: int) -> None:
 def start() -> None:
     pids = read_pids()
     # Kill old instances
-    for key in ("next", "backend", "mcp"):
+    for key in ("next", "backend", "mcp", "stream"):
         if key in pids and is_alive(pids[key]):
             print(f"killing old {key} pid={pids[key]}")
             kill_pid(pids[key])
@@ -80,16 +80,26 @@ def start() -> None:
         stdin=subprocess.DEVNULL,
         start_new_session=True,
     )
-    PIDFILE.write_text(
-        f"next={next_proc.pid}\nbackend={backend_proc.pid}\nmcp={mcp_proc.pid}\n"
+    # Start execution stream (socket.io port 3003)
+    stream_proc = subprocess.Popen(
+        ["bun", "run", "index.ts"],
+        cwd=str(ROOT / "mini-services" / "execution-stream"),
+        stdout=open(ROOT / "stream.log", "ab"),
+        stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
     )
-    print(f"started next={next_proc.pid} backend={backend_proc.pid} mcp={mcp_proc.pid}")
+    PIDFILE.write_text(
+        f"next={next_proc.pid}\nbackend={backend_proc.pid}\nmcp={mcp_proc.pid}\nstream={stream_proc.pid}\n"
+    )
+    print(f"started next={next_proc.pid} backend={backend_proc.pid} mcp={mcp_proc.pid} stream={stream_proc.pid}")
     # Wait for all to be ready
     import urllib.request
     for label, port, path in (
         ("next", 3000, "/"),
         ("backend", 8001, "/api/v1/healthz?XTransformPort=8001"),
         ("mcp", 3004, "/health"),
+        ("stream", 3003, "/health"),
     ):
         for _ in range(40):
             try:
