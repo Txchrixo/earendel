@@ -21,6 +21,6 @@ export const useStudio = create<StudioState>((set) => ({
   selectedExecutionId: null,
   setView: (view) => set({ view }),
   openAction: (id) => set({ view: "action-detail", selectedActionId: id }),
-  openConnector: (id) => set({ view: "connectors", selectedConnectorId: id }),
+  openConnector: (id) => set({ view: "connector-detail", selectedConnectorId: id }),
   openExecution: (id) => set({ view: "executions", selectedExecutionId: id }),
 }));

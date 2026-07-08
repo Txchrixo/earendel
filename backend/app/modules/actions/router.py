@@ -24,10 +24,14 @@ class RollbackBody(BaseModel):
 
 
 @router.get("")
-async def list_actions_endpoint(registry=Depends(get_action_registry)
-                                ) -> list[dict[str, Any]]:
-    """List all actions."""
+async def list_actions_endpoint(
+    registry=Depends(get_action_registry),
+    connectorId: str | None = None,
+) -> list[dict[str, Any]]:
+    """List all actions, optionally filtered by connectorId."""
     items = await service.fetch_all(registry)
+    if connectorId:
+        items = [a for a in items if a.connectorId == connectorId]
     return [a.model_dump(mode="json") for a in items]
 
 

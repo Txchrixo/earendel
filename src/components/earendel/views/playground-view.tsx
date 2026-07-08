@@ -25,6 +25,7 @@ import { useStudio } from "@/lib/earendel/store";
 import { api } from "@/lib/earendel/api-client";
 import type { TypedAction, Execution } from "@/lib/earendel/types";
 import { SectionTitle, EmptyState, AdapterChip } from "../primitives";
+import { RiskGateDialog } from "../risk-gate-dialog";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                              */
@@ -281,10 +282,20 @@ function ManualRunner({ actions }: { actions: TypedAction[] }) {
             ))}
           </SelectContent>
         </Select>
-        <Button onClick={run} disabled={running}>
-          <Icon name="executions" size={14} aria-hidden />
-          {running ? "Running…" : "Run action"}
-        </Button>
+        <RiskGateDialog
+          riskLevel={action.riskLevel}
+          permission={action.permissions}
+          actionLabel={action.signature}
+          inputs={Object.fromEntries(
+            Object.entries(values).filter(([, v]) => v !== "" && v !== undefined),
+          )}
+          onConfirm={run}
+        >
+          <Button disabled={running}>
+            <Icon name="executions" size={14} aria-hidden />
+            {running ? "Running…" : "Run action"}
+          </Button>
+        </RiskGateDialog>
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
         {action.contract.inputs.map((f) => (

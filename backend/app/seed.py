@@ -82,6 +82,66 @@ def _contract_claim() -> ActionContract:
     )
 
 
+def _contract_marketplace_report() -> ActionContract:
+    """Contract for downloadMarketplaceReport (ecommerce)."""
+    return ActionContract(
+        inputs=[
+            FieldSchema("marketplace", "string", True, "Marketplace code",
+                        enum=("amazon", "ebay", "shopify", "walmart")),
+            FieldSchema("reportType", "string", True, "Report type",
+                        enum=("settlement", "returns", "inventory", "sales")),
+            FieldSchema("dateRange", "string", True, "ISO date range YYYY-MM-DD..YYYY-MM-DD"),
+        ],
+        outputs=[
+            FieldSchema("reportUrl", "url", True, "Downloaded report URL"),
+            FieldSchema("rows", "number", True, "Row count"),
+            FieldSchema("periodStart", "date", True, "Period start"),
+            FieldSchema("periodEnd", "date", True, "Period end"),
+            FieldSchema("currency", "string", True, "Settlement currency"),
+        ],
+        preconditions=["connector active", "seller account authorised"],
+        postconditions=["report downloaded", "rows > 0"],
+    )
+
+
+def _contract_candidates() -> ActionContract:
+    """Contract for exportNewCandidates (HR)."""
+    return ActionContract(
+        inputs=[
+            FieldSchema("jobId", "string", True, "Internal job id"),
+            FieldSchema("source", "string", False, "Portal source",
+                        enum=("linkedin", "indeed", "glassdoor", "all")),
+        ],
+        outputs=[
+            FieldSchema("candidates", "file", True, "Candidate export (CSV)"),
+            FieldSchema("count", "number", True, "Candidate count"),
+            FieldSchema("duplicatesRemoved", "number", True, "Dedup count"),
+            FieldSchema("topMatchScore", "number", False, "Best match score 0..1"),
+        ],
+        preconditions=["connector active", "job published"],
+        postconditions=["candidates exported", "duplicates removed"],
+    )
+
+
+def _contract_questionnaire() -> ActionContract:
+    """Contract for fillSecurityQuestionnaire (compliance)."""
+    return ActionContract(
+        inputs=[
+            FieldSchema("portalUrl", "url", True, "Vendor portal URL"),
+            FieldSchema("knowledgeBaseId", "string", True, "Company KB reference"),
+        ],
+        outputs=[
+            FieldSchema("filledFields", "number", True, "Auto-filled answers"),
+            FieldSchema("needsReview", "number", True, "Answers needing human review"),
+            FieldSchema("evidenceRefs", "file", False, "Evidence bundle (ZIP)"),
+            FieldSchema("status", "string", True, "Draft status",
+                        enum=("draft", "submitted", "in_review")),
+        ],
+        preconditions=["connector active", "KB indexed"],
+        postconditions=["draft saved", "evidence linked"],
+    )
+
+
 def _make_canary(action_id: str, name: str, passed: bool, pass_rate: float
                  ) -> CanaryTest:
     """Build a deterministic canary test for an action."""
@@ -172,6 +232,19 @@ async def run(action_registry) -> dict[str, str]:
         "BlueCross Payer Portal", "BlueCross Payer Portal", "provider.bluecross.com",
         "checkClaimStatus", WorkflowCategory.healthcare, PermissionScope.read_only,
         RiskLevel.medium, ["provider.bluecross.com"], "sso")
+    amazon = await create_connector(
+        "Amazon Seller Central", "Amazon Seller Central", "sellercentral.amazon.com",
+        "downloadMarketplaceReport", WorkflowCategory.ecommerce,
+        PermissionScope.read_only, RiskLevel.low,
+        ["sellercentral.amazon.com"], "oauth")
+    greenhouse = await create_connector(
+        "Greenhouse Recruiting", "Greenhouse Recruiting", "app.greenhouse.io",
+        "exportNewCandidates", WorkflowCategory.hr, PermissionScope.read_write,
+        RiskLevel.medium, ["app.greenhouse.io"], "api_key")
+    drata = await create_connector(
+        "Drata Compliance Portal", "Drata Compliance Portal", "app.drata.com",
+        "fillSecurityQuestionnaire", WorkflowCategory.compliance,
+        PermissionScope.submit, RiskLevel.high, ["app.drata.com"], "sso")
 
     # 2. Recordings (for connectors 1 and 2)
     rec_acme = simulate_recording(acme.id, "downloadInvoice")
@@ -201,7 +274,31 @@ async def run(action_registry) -> dict[str, str]:
         _contract_claim(),
         [AdapterType.internal_route, AdapterType.browser],
         AdapterType.internal_route)
-    for a in (invoice_action, shipment_action, claim_action):
+    marketplace_action = await _build_action(
+        amazon, "downloadMarketplaceReport",
+        "downloadMarketplaceReport(marketplace: string, reportType: string, dateRange: string)",
+        "Download a settlement, returns, inventory or sales report from Amazon Seller Central.",
+        _contract_marketplace_report(),
+        [AdapterType.api, AdapterType.internal_route, AdapterType.browser],
+        AdapterType.api)
+    candidates_action = await _build_action(
+        greenhouse, "exportNewCandidates",
+        "exportNewCandidates(jobId: string, source?: string)",
+        "Export new candidates for a job from Greenhouse, deduplicated against the ATS.",
+        _contract_candidates(),
+        [AdapterType.api, AdapterType.browser],
+        AdapterType.api)
+    questionnaire_action = await _build_action(
+        drata, "fillSecurityQuestionnaire",
+        "fillSecurityQuestionnaire(portalUrl: string, knowledgeBaseId: string)",
+        "Pre-fill a vendor security questionnaire on Drata from the company knowledge base. "
+        "Submits a draft for human review — never auto-submits.",
+        _contract_questionnaire(),
+        [AdapterType.browser, AdapterType.vision, AdapterType.human],
+        AdapterType.browser,
+        status=ActionStatus.testing)
+    for a in (invoice_action, shipment_action, claim_action,
+              marketplace_action, candidates_action, questionnaire_action):
         await action_registry.put(a)
 
     # 4. Executions — mix of statuses with rich traces.
@@ -272,6 +369,59 @@ async def run(action_registry) -> dict[str, str]:
                     message="escalating to human review", step="escalate")],
         caller=Caller.manual, risk_approved=False)
 
+    # 4b. Executions for the new verticals.
+    await _persist_execution(
+        marketplace_action,
+        {"marketplace": "amazon", "reportType": "settlement", "dateRange": "2025-01-01..2025-01-31"},
+        {"reportUrl": "https://sellercentral.amazon.com/reports/settlement-2025-01.csv",
+         "rows": 1284, "periodStart": "2025-01-01", "periodEnd": "2025-01-31", "currency": "EUR"},
+        AdapterType.api, ExecutionStatus.success, None,
+        [TraceEvent(ts=datetime.utcnow(), adapter=AdapterType.api, level="info",
+                    message="GET /reports/2021-09-30/reports?reportType=SETTLEMENT",
+                    step="http.request", durationMs=120),
+         TraceEvent(ts=datetime.utcnow(), adapter=AdapterType.api, level="info",
+                    message="report document ready", step="poll", durationMs=2100)],
+        caller=Caller.schedule)
+    await _persist_execution(
+        marketplace_action,
+        {"marketplace": "amazon", "reportType": "returns", "dateRange": "2025-01-01..2025-01-31"},
+        {"reportUrl": "https://sellercentral.amazon.com/reports/returns-2025-01.csv",
+         "rows": 47, "periodStart": "2025-01-01", "periodEnd": "2025-01-31", "currency": "EUR"},
+        AdapterType.internal_route, ExecutionStatus.success, None,
+        [TraceEvent(ts=datetime.utcnow(), adapter=AdapterType.api, level="warn",
+                    message="official API 404; falling back", step="fallback"),
+         TraceEvent(ts=datetime.utcnow(), adapter=AdapterType.internal_route, level="info",
+                    message="discovered /internal/returns/download", step="discover", durationMs=180),
+         TraceEvent(ts=datetime.utcnow(), adapter=AdapterType.internal_route, level="info",
+                    message="200 OK", step="http.response", durationMs=220)],
+        caller=Caller.agent)
+    await _persist_execution(
+        candidates_action,
+        {"jobId": "JOB-204", "source": "linkedin"},
+        {"candidates": "exports/candidates-JOB-204.csv", "count": 38,
+         "duplicatesRemoved": 11, "topMatchScore": 0.92},
+        AdapterType.api, ExecutionStatus.success, None,
+        [TraceEvent(ts=datetime.utcnow(), adapter=AdapterType.api, level="info",
+                    message="GET /v1/partner/v1/jobs/204/candidates", step="http.request", durationMs=95),
+         TraceEvent(ts=datetime.utcnow(), adapter=AdapterType.api, level="info",
+                    message="LLM dedup: 11 candidates merged", step="dedup", durationMs=480)],
+        caller=Caller.agent)
+    await _persist_execution(
+        questionnaire_action,
+        {"portalUrl": "https://app.drata.com/vendor/secure", "knowledgeBaseId": "kb-soc2-v3"},
+        {"filledFields": 84, "needsReview": 12,
+         "evidenceRefs": "evidence/drata-soc2-bundle.zip", "status": "draft"},
+        AdapterType.browser, ExecutionStatus.human_review, None,
+        [TraceEvent(ts=datetime.utcnow(), adapter=AdapterType.browser, level="info",
+                    message="goto vendor security questionnaire", step="navigate", durationMs=1400),
+         TraceEvent(ts=datetime.utcnow(), adapter=AdapterType.browser, level="info",
+                    message="RAG retrieved 84 answers from kb-soc2-v3", step="rag", durationMs=720),
+         TraceEvent(ts=datetime.utcnow(), adapter=AdapterType.browser, level="warn",
+                    message="12 answers below confidence threshold — flagged for review", step="flag"),
+         TraceEvent(ts=datetime.utcnow(), adapter=AdapterType.human, level="warn",
+                    message="draft saved; awaiting compliance lead approval", step="escalate")],
+        caller=Caller.agent, risk_approved=False)
+
     # 5. Repair proposals (one pending, one auto_applied).
     rep1 = RepairProposal(
         id=new_id("rep"), actionId=shipment_action.id, actionVersion="1.2.0",
@@ -296,4 +446,7 @@ async def run(action_registry) -> dict[str, str]:
         invoice_action.name: invoice_action.id,
         shipment_action.name: shipment_action.id,
         claim_action.name: claim_action.id,
+        marketplace_action.name: marketplace_action.id,
+        candidates_action.name: candidates_action.id,
+        questionnaire_action.name: questionnaire_action.id,
     }

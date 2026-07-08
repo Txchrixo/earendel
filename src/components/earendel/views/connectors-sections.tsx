@@ -97,11 +97,21 @@ export function ConnectorCard({ connector }: { connector: Connector }) {
   const catIcon = CATEGORY_ICON[connector.category] ?? "gear";
 
   return (
-    <Card className="gap-3 p-4">
+    <Card
+      className="er-card-raised er-lift er-bar-accent gap-3 p-4 cursor-pointer"
+      onClick={() => openConnector(connector.id)}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="grid size-7 place-items-center rounded-md bg-secondary text-foreground">
+            <span
+              className="grid size-7 place-items-center rounded-md"
+              style={{
+                background:
+                  "linear-gradient(135deg, rgba(107,88,118,0.35), rgba(122,133,72,0.18))",
+                color: "#E8E0D4",
+              }}
+            >
               <Icon name={catIcon} size={14} aria-hidden />
             </span>
             <p className="truncate font-heading text-lg leading-tight">

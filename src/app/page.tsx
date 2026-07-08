@@ -4,6 +4,7 @@ import { AppShell } from "@/components/earendel/app-shell";
 import { useStudio } from "@/lib/earendel/store";
 import { DashboardView } from "@/components/earendel/views/dashboard-view";
 import { ConnectorsView } from "@/components/earendel/views/connectors-view";
+import { ConnectorDetailView } from "@/components/earendel/views/connector-detail-view";
 import { RecorderView } from "@/components/earendel/views/recorder-view";
 import { ActionsView } from "@/components/earendel/views/actions-view";
 import { ActionDetailView } from "@/components/earendel/views/action-detail-view";
@@ -19,6 +20,8 @@ function CurrentView() {
       return <DashboardView />;
     case "connectors":
       return <ConnectorsView />;
+    case "connector-detail":
+      return <ConnectorDetailView />;
     case "recorder":
       return <RecorderView />;
     case "actions":

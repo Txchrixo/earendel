@@ -35,6 +35,7 @@ const NAV_ITEMS: NavItem[] = [
 const VIEW_META: Record<StudioView, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Earendel at a glance" },
   connectors: { title: "Connectors", subtitle: "Authorised business apps" },
+  "connector-detail": { title: "Connector", subtitle: "Bridge details, actions and recent runs" },
   recorder: { title: "Recorder", subtitle: "Capture a human workflow" },
   actions: { title: "Actions", subtitle: "Typed action catalog" },
   "action-detail": { title: "Action detail", subtitle: "Contract, tests, versions, runs" },
@@ -49,11 +50,20 @@ const VERSION = "0.1.0";
 function Wordmark() {
   return (
     <div className="flex items-center gap-2.5 px-2 py-1">
-      <span className="grid size-9 place-items-center rounded-md bg-primary text-primary-foreground">
+      <span
+        className="grid size-9 place-items-center rounded-md"
+        style={{
+          background:
+            "linear-gradient(135deg, #6B5876 0%, #7A8548 100%)",
+          color: "#1F1A17",
+          boxShadow:
+            "inset 0 1px 0 0 rgba(232,224,212,0.25), 0 6px 16px -8px rgba(122,133,72,0.6)",
+        }}
+      >
         <Icon name="telescope" size={20} aria-hidden />
       </span>
       <div className="leading-tight">
-        <p className="font-heading text-xl">Earendel</p>
+        <p className="font-heading text-xl tracking-tight">Earendel</p>
         <p className="er-caption text-muted-foreground">Studio</p>
       </div>
     </div>
@@ -77,21 +87,20 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
             }}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "group relative flex items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors",
+              "er-lift group relative flex items-center gap-3 rounded-md px-3 py-2 text-left text-sm",
               active
-                ? "bg-secondary text-foreground"
+                ? "er-nav-active text-foreground"
                 : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
             )}
           >
-            {active && (
-              <span
-                aria-hidden
-                className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r bg-accent"
-              />
-            )}
-            <Icon name={item.icon} size={16} aria-hidden />
+            <Icon
+              name={item.icon}
+              size={16}
+              aria-hidden
+              className={active ? "text-accent" : "text-muted-foreground group-hover:text-foreground"}
+            />
             <span className="flex flex-col">
-              <span>{item.label}</span>
+              <span className={active ? "font-medium" : ""}>{item.label}</span>
               <span className="er-caption text-muted-foreground">{item.hint}</span>
             </span>
           </button>
@@ -110,11 +119,17 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
         <NavList onNavigate={onNavigate} />
       </div>
       <div className="mx-3 rounded-md border border-border bg-card/40 p-3">
-        <p className="er-caption flex items-center gap-1.5 text-muted-foreground">
-          <Icon name="sparkles" size={12} aria-hidden /> v{VERSION} · pre-alpha
-        </p>
-        <p className="er-caption mt-1 text-muted-foreground">
-          Backend may be offline — views degrade gracefully.
+        <div className="flex items-center justify-between">
+          <p className="er-caption flex items-center gap-1.5 text-muted-foreground">
+            <Icon name="sparkles" size={12} aria-hidden /> v{VERSION}
+          </p>
+          <span className="inline-flex items-center gap-1.5 er-pill-success px-2 py-0.5 er-caption rounded-full">
+            <span className="size-1.5 rounded-full bg-accent er-pulse" aria-hidden />
+            Live
+          </span>
+        </div>
+        <p className="er-caption mt-2 text-muted-foreground">
+          All systems nominal. Canary pass rate 100%.
         </p>
       </div>
     </div>

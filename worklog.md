@@ -224,3 +224,56 @@ Stage Summary:
 - Frontend: app shell + 9 views, Octicons-only, dark warm design system (Cormorant Garamond + Hanken Grotesk), real backend wiring, framer-motion, sonner toasts.
 - Services daemonized via start_services.py (pidfile at services.pid). Restart: `python3 /home/z/my-project/start_services.py`.
 - Next phase: cron webDevReview every 15 min for continuous QA + feature expansion.
+
+---
+Task ID: 6
+Agent: cron-webDevReview (round 1)
+Task: Continuous QA + styling depth + connector detail view + risk-gate modal + more seeded verticals.
+
+## Current project status assessment
+- Services: Next.js (3000) + FastAPI (8001) + Caddy gateway (81) all healthy when daemonized via `start_new_session=True` (Python). The sandbox kills processes spawned by plain `&`/`nohup` at session end — must use `python3 start_services.py` (uses `subprocess.Popen(start_new_session=True)` + pidfile).
+- QA sweep across all 9 views: zero console errors, zero page errors. Agent flow (downloadInvoice ×3 → €12841.50) still works end-to-end. Recorder live capture works. Publishing MCP/REST/SDK tabs render real backend data.
+- VLM (glm-4.6v) rated the pre-improvement dashboard 6/10 ("functional but flat, lacks depth").
+- One React warning observed earlier (Select uncontrolled→controlled) was not reproducible this round.
+
+## Completed modifications
+1. **Styling depth system** (globals.css + primitives.tsx):
+   - Added 12 premium utility classes: `.er-card-raised` (layered top-sheen + hairline border + outer glow), `.er-lift` (hover translateY + border highlight), `.er-bar-accent` (gradient left-bar), `.er-gradient-text`, `.er-pill-{success,warn,danger,neutral,primary}` (gradient status pills), `.er-divider`, `.er-grid-bg` (dotted texture), `.er-nav-active` (gradient + inset accent), `.er-rise` (entrance anim), `.er-trace-line`, `.er-shimmer`.
+   - Upgraded `StatCard` (raised card + gradient icon tile + shimmer loading), `SectionTitle` (gradient icon + bottom border divider), `RiskBadge` (gradient pills), `StatusDot` (glowing dot), `AdapterChip` (active prop with primary pill), `EmptyState` (dotted bg + circular gradient icon).
+   - Upgraded `AppShell` wordmark (gradient telescope tile), nav (er-nav-active gradient + accent icon), sidebar footer (Live status pill with pulse).
+   - VLM re-rated dashboard 8/10 after improvements.
+2. **Connector detail view** (new: `connector-detail-view.tsx`):
+   - Added `connector-detail` to `StudioView` type + store `openConnector` now navigates to detail (was list).
+   - View shows: Bridge identity (target app, workflow, category, auth, created), Credential vault (sealed badge + key + RBAC note), Allowed domains chips, quick-action buttons, Compiled actions for this connector (filtered via new `?connectorId=` query param on `GET /api/v1/actions`), Recent executions on this connector's actions.
+   - Connector cards in the catalog are now fully clickable (whole card) with `er-card-raised er-lift er-bar-accent`.
+3. **Risk-gate confirmation modal** (new: `risk-gate-dialog.tsx`):
+   - Reusable `RiskGateDialog` wraps any trigger button. Gates fire only for high/critical risk OR submit/destructive permission (low/medium read-only run directly, per the research's risk-based autonomy policy).
+   - Two tiers: high-risk/submit → "Authorise & run" button; destructive/critical → requires typing the action name to confirm (typed confirmation pattern) + red destructive button.
+   - Shows risk badge, permission scope, inputs JSON preview, policy explainer.
+   - Wired into the Playground ManualRunner (replaces the bare Run button).
+   - Verified: selecting `fillSecurityQuestionnaire` (high risk, submit) + Run → modal opens "High-risk action" with Cancel / Authorise & run.
+4. **More seeded verticals** (backend/seed.py):
+   - Added 3 connectors: Amazon Seller Central (ecommerce, oauth), Greenhouse Recruiting (HR, api_key, read_write), Drata Compliance Portal (compliance, sso, submit, high risk).
+   - Added 3 typed actions with full contracts: `downloadMarketplaceReport`, `exportNewCandidates`, `fillSecurityQuestionnaire` (the last in `testing` status with browser→vision→human fallback chain).
+   - Added 4 executions with rich traces across the new verticals (marketplace settlement+returns, HR candidate export with LLM dedup, compliance questionnaire with RAG + human review flagging).
+   - Total seed now: 6 connectors, 6 actions (5 published + 1 testing), 10 executions, 2 repair proposals. Dashboard shows 6 / 5 / 10 / 70%.
+   - Backend `GET /api/v1/actions` now accepts optional `?connectorId=` filter (used by connector detail view).
+
+## Verification results
+- `bun run lint` → 0 errors, 0 warnings.
+- dev.log: clean compiles, no errors.
+- backend.log: clean startup, all endpoints 200.
+- agent-browser: dashboard (6/5/10/70% stats), connectors (6 cards render), connector detail (Bridge identity + vault + allowed domains + compiled actions + recent executions all render), playground (risk-gate modal opens for high-risk submit action), all 6 actions in manual-runner dropdown. Zero console errors across the session.
+
+## Unresolved issues / risks + next-phase recommendations
+1. **PublishedTool type mismatch** (carried over): backend returns `mcpDefinition` as a JSON object but the shared TS type declares it as `string`. The publishing view handles this defensively with a local `RichPublishedTool` interface. Recommend widening the type in `types.ts` to `string | Record<string, unknown>` next round.
+2. **Section-helper files exceed the 280-line soft guideline** (monitoring 532, publishing 561, playground 593, action-detail-sections 617). Each section is doing distinct work; splitting further would hurt cohesion. Acceptable but worth monitoring.
+3. **Backend process stability**: the sandbox kills background processes at bash-session end. `start_services.py` (Python `start_new_session=True`) is the reliable launcher; plain `&`/`nohup` are not. The cron job should always restart services via `python3 /home/z/my-project/start_services.py` if health checks fail.
+4. **Next-phase feature priorities** (ranked):
+   - Real LLM-backed recording compilation (wire `z-ai-web-dev-sdk` into `schema_compiler.py` so `POST /recordings/:id/compile` actually infers the contract from captured steps via LLM, instead of the current keyword-stub).
+   - Execution replay: a "Replay" button on executions that re-runs with the same inputs and shows a side-by-side trace diff.
+   - Repair approval flow with selector diffing: when approving a repair, show a visual DOM diff (old selector → new candidate) with the LLM's reasoning.
+   - MCP registry import/export: a `/api/v1/mcp/registry` endpoint that returns all published actions as a single MCP server manifest, importable into Claude/Cursor config.
+   - Toast consolidation: each view mounts its own Sonner `<Toaster />` (layout.tsx is on the do-not-modify list). Consider moving the Toaster into the AppShell so there's exactly one.
+   - Empty-state illustrations: replace the gradient icon circles with small inline SVG spot illustrations for more personality.
+5. **Styling**: VLM says depth variation between sections could still improve — consider differentiating "primary" cards (er-card-raised) from "secondary" cards (flatter) more deliberately in the dashboard layout.

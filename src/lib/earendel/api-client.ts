@@ -81,7 +81,10 @@ export const api = {
     }),
 
   // ---- Actions ----
-  listActions: () => request<TypedAction[]>("/api/v1/actions"),
+  listActions: (connectorId?: string) =>
+    request<TypedAction[]>("/api/v1/actions", {
+      params: connectorId ? { connectorId } : undefined,
+    }),
   getAction: (id: string) => request<TypedAction>(`/api/v1/actions/${id}`),
   publishAction: (id: string, targets: ("mcp" | "rest" | "sdk" | "webhook")[]) =>
     request<TypedAction>(`/api/v1/actions/${id}/publish`, {

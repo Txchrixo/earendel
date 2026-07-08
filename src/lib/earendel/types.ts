@@ -208,6 +208,7 @@ export interface DashboardStats {
 export type StudioView =
   | "dashboard"
   | "connectors"
+  | "connector-detail"
   | "recorder"
   | "actions"
   | "action-detail"

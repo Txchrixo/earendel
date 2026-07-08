@@ -42,17 +42,29 @@ export function StatCard({
   loading,
 }: StatCardProps) {
   return (
-    <Card className="gap-0 p-4">
+    <Card className="er-card-raised er-lift gap-0 p-4">
       <div className="flex items-start justify-between">
         <span className="er-caption text-muted-foreground uppercase tracking-wide">
           {label}
         </span>
-        <span className="grid size-7 place-items-center rounded-md bg-secondary text-foreground">
+        <span
+          className="grid size-7 place-items-center rounded-md"
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(107,88,118,0.35), rgba(122,133,72,0.18))",
+            color: "#E8E0D4",
+            boxShadow: "inset 0 0 0 1px rgba(232,224,212,0.08)",
+          }}
+        >
           <Icon name={icon} size={16} aria-hidden />
         </span>
       </div>
-      <div className="mt-3 font-heading text-3xl leading-none">
-        {loading ? <span className="er-pulse text-muted-foreground">…</span> : value}
+      <div className="mt-3 font-heading text-3xl leading-none tabular-nums">
+        {loading ? (
+          <span className="er-shimmer inline-block h-7 w-16 rounded" />
+        ) : (
+          value
+        )}
       </div>
       {delta && (
         <div className={cn("er-caption mt-2", trendColor[trend])}>
@@ -76,9 +88,17 @@ interface SectionTitleProps {
 
 export function SectionTitle({ icon, title, subtitle, action }: SectionTitleProps) {
   return (
-    <div className="mb-4 flex items-end justify-between gap-4">
+    <div className="mb-5 flex items-end justify-between gap-4 border-b border-border/60 pb-3">
       <div className="flex items-center gap-3">
-        <span className="grid size-8 place-items-center rounded-md bg-secondary text-foreground">
+        <span
+          className="grid size-9 place-items-center rounded-md"
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(107,88,118,0.40), rgba(122,133,72,0.18))",
+            color: "#E8E0D4",
+            boxShadow: "inset 0 0 0 1px rgba(232,224,212,0.08)",
+          }}
+        >
           <Icon name={icon} size={16} aria-hidden />
         </span>
         <div>
@@ -109,13 +129,26 @@ const riskVariants = cva("border-transparent", {
   defaultVariants: { level: "low" },
 });
 
+const riskPill: Record<RiskLevel, string> = {
+  low: "er-pill-success",
+  medium: "er-pill-warn",
+  high: "er-pill-danger",
+  critical: "er-pill-danger",
+};
+
 export function RiskBadge({
   level,
   className,
 }: { level: RiskLevel } & VariantProps<typeof riskVariants> &
   React.ComponentProps<typeof Badge>) {
   return (
-    <Badge className={cn(riskVariants({ level }), className)}>
+    <Badge
+      className={cn(
+        "border-transparent font-medium",
+        riskPill[level],
+        className,
+      )}
+    >
       <Icon name="shield" size={12} aria-hidden /> {level}
     </Badge>
   );
@@ -153,6 +186,7 @@ export function StatusDot({ status }: { status: AnyStatus }) {
           cfg.color,
           status === "running" && "er-pulse",
         )}
+        style={{ boxShadow: "0 0 6px 0 currentColor" }}
         aria-hidden
       />
       {cfg.label}
@@ -172,9 +206,22 @@ const adapterIcon: Record<AdapterType, ErIconName> = {
   human: "person",
 };
 
-export function AdapterChip({ adapter }: { adapter: AdapterType }) {
+export function AdapterChip({
+  adapter,
+  active,
+}: {
+  adapter: AdapterType;
+  active?: boolean;
+}) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-border bg-secondary px-2 py-0.5 er-caption">
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 er-caption transition-colors",
+        active
+          ? "er-pill-primary"
+          : "border-border bg-secondary text-muted-foreground",
+      )}
+    >
       <Icon name={adapterIcon[adapter]} size={12} aria-hidden />
       {adapter.replace("_", " ")}
     </span>
@@ -194,14 +241,24 @@ interface EmptyStateProps {
 
 export function EmptyState({ icon, title, description, action }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border bg-card/40 p-8 text-center">
-      <span className="grid size-10 place-items-center rounded-md bg-secondary text-muted-foreground">
+    <div className="er-grid-bg flex flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border bg-card/40 p-8 text-center">
+      <span
+        className="grid size-11 place-items-center rounded-full"
+        style={{
+          background:
+            "linear-gradient(135deg, rgba(107,88,118,0.30), rgba(122,133,72,0.12))",
+          color: "#A5A19B",
+          boxShadow: "inset 0 0 0 1px rgba(232,224,212,0.06)",
+        }}
+      >
         <Icon name={icon} size={20} aria-hidden />
       </span>
       <div>
         <p className="font-heading text-lg">{title}</p>
         {description && (
-          <p className="er-caption mt-1 text-muted-foreground">{description}</p>
+          <p className="er-caption mt-1 text-muted-foreground max-w-sm">
+            {description}
+          </p>
         )}
       </div>
       {action}
