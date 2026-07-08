@@ -28,6 +28,7 @@ import { useApi } from "../use-api";
 import { api } from "@/lib/earendel/api-client";
 import type {
   MonitoringSummary,
+  TimeSeries,
   TypedAction,
   RepairProposal,
 } from "@/lib/earendel/types";
@@ -452,23 +453,34 @@ const TREND_DATA = [
 ];
 
 function ReliabilityTrend() {
-  const { data } = useApi<MonitoringSummary>(() => api.monitoring(), []);
-  const latest = data ? data.successRate24h : 0.94;
-  const series = TREND_DATA.map((d, i) =>
+  const { data: mon } = useApi<MonitoringSummary>(() => api.monitoring(), []);
+  const { data: ts } = useApi<TimeSeries>(() => api.timeseries(24), []);
+  // Use real hourly points from the timeseries endpoint; fall back to the
+  // deterministic 7-day series if the endpoint is unavailable.
+  const latest = mon ? mon.successRate24h : 0.94;
+  const series = (ts?.points ?? []).map((p) => ({
+    t: p.hourLabel,
+    rate: p.successRate,
+    total: p.total,
+  }));
+  const fallback = TREND_DATA.map((d, i) =>
     i === TREND_DATA.length - 1 ? { ...d, rate: latest } : d,
   );
+  const chartData = series.length > 0 ? series : fallback;
   return (
-    <Card className="gap-2 p-4">
+    <Card className="er-card-raised gap-2 p-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Icon name="graph" size={14} aria-hidden />
           <h3 className="er-h3">Reliability trend</h3>
         </div>
-        <span className="er-caption text-muted-foreground">last 7 days</span>
+        <span className="er-caption text-muted-foreground">
+          {series.length > 0 ? "last 24 hours" : "last 7 days"}
+        </span>
       </div>
       <div className="h-40">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={series} margin={{ top: 4, right: 8, bottom: 0, left: -16 }}>
+          <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: -16 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
             <XAxis
               dataKey="t"
@@ -476,9 +488,10 @@ function ReliabilityTrend() {
               tick={{ fontSize: 11 }}
               tickLine={false}
               axisLine={false}
+              interval="preserveStartEnd"
             />
             <YAxis
-              domain={[0.7, 1]}
+              domain={[0.6, 1]}
               stroke="var(--muted-foreground)"
               tick={{ fontSize: 11 }}
               tickLine={false}
@@ -499,7 +512,8 @@ function ReliabilityTrend() {
               dataKey="rate"
               stroke="var(--chart-2)"
               strokeWidth={2}
-              dot={{ r: 3, fill: "var(--chart-2)" }}
+              dot={{ r: 2.5, fill: "var(--chart-2)" }}
+              activeDot={{ r: 4 }}
             />
           </LineChart>
         </ResponsiveContainer>

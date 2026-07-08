@@ -8,6 +8,7 @@ import {
   ReliabilitySection,
   RecentExecutionsSection,
   OpenRepairsSection,
+  SystemHealthStrip,
 } from "./dashboard-sections";
 
 /**
@@ -35,6 +36,7 @@ export function DashboardView() {
         <RecentExecutionsSection />
       </div>
       <OpenRepairsSection />
+      <SystemHealthStrip />
     </motion.div>
   );
 }

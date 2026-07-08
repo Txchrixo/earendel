@@ -14,6 +14,7 @@ import { toast } from "@/hooks/use-toast";
 import type {
   DashboardStats,
   MonitoringSummary,
+  TimeSeries,
   Execution,
   RepairProposal,
 } from "@/lib/earendel/types";
@@ -191,16 +192,15 @@ function Metric({ label, value, icon }: { label: string; value: React.ReactNode;
   );
 }
 
-/** Small inline SVG sparkline — 7 deterministic points ending at the live value. */
-function HealthSpark({ value }: { value: number }) {
-  // Deterministic 7-point series ending at the live success rate.
-  const pts = [0.82, 0.79, 0.85, 0.88, 0.84, 0.91, value];
+/** Small inline SVG sparkline from real time-series points. */
+function HealthSpark({ points }: { points: number[] }) {
+  if (points.length === 0) return null;
   const w = 120;
   const h = 36;
   const max = 1;
   const min = 0.6;
-  const stepX = w / (pts.length - 1);
-  const coords = pts.map((p, i) => {
+  const stepX = w / Math.max(1, points.length - 1);
+  const coords = points.map((p, i) => {
     const x = i * stepX;
     const y = h - ((p - min) / (max - min)) * h;
     return [x, y];
@@ -227,7 +227,13 @@ function HealthSpark({ value }: { value: number }) {
 
 export function ReliabilitySection() {
   const { data, loading, error } = useApi<MonitoringSummary>(() => api.monitoring(), []);
+  const { data: ts } = useApi<TimeSeries>(() => api.timeseries(24), []);
   const successPct = data ? Math.round(data.successRate24h * 100) : 0;
+  // Sample the 24h series down to ~12 points for the sparkline, else fall back.
+  const sparkPoints = (ts?.points ?? []).map((p) => p.successRate);
+  const sampled = sparkPoints.length > 12
+    ? sparkPoints.filter((_, i) => i % Math.ceil(sparkPoints.length / 12) === 0).slice(-12)
+    : sparkPoints;
   return (
     <section>
       <SectionTitle
@@ -261,7 +267,7 @@ export function ReliabilitySection() {
                 <span className="font-heading text-3xl leading-none tabular-nums er-gradient-text">
                   {successPct}%
                 </span>
-                <HealthSpark value={data?.successRate24h ?? 0.85} />
+                <HealthSpark points={sampled.length > 0 ? sampled : [0.82, 0.79, 0.85, 0.88, 0.84, 0.91, data?.successRate24h ?? 0.85]} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-4">
@@ -445,5 +451,84 @@ export function OpenRepairsSection() {
         </div>
       )}
     </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* SystemHealthStrip — /healthz + /readyz status indicators           */
+/* ------------------------------------------------------------------ */
+
+interface HealthStatus {
+  status: string;
+  checks?: Record<string, string>;
+  counts?: Record<string, number>;
+}
+
+function HealthPill({
+  label,
+  ok,
+  detail,
+}: {
+  label: string;
+  ok: boolean;
+  detail?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className={cn(
+          "size-2 rounded-full",
+          ok ? "bg-accent er-pulse" : "bg-destructive",
+        )}
+        style={{ boxShadow: "0 0 6px 0 currentColor" }}
+        aria-hidden
+      />
+      <span className="er-caption text-muted-foreground">{label}</span>
+      <span className={cn("er-caption font-mono", ok ? "text-accent" : "text-destructive")}>
+        {ok ? "ok" : "down"}
+      </span>
+      {detail && (
+        <span className="er-caption text-muted-foreground/70">· {detail}</span>
+      )}
+    </div>
+  );
+}
+
+export function SystemHealthStrip() {
+  const { data: liveness } = useApi<{ status: string }>(
+    () => api.raw("/api/v1/healthz"),
+    [],
+    { refetchInterval: 30000 },
+  );
+  const { data: readiness } = useApi<HealthStatus>(
+    () => api.raw("/api/v1/readyz"),
+    [],
+    { refetchInterval: 30000 },
+  );
+  const liveOk = liveness?.status === "alive";
+  const readyOk = readiness?.status === "ready";
+  const dbOk = readiness?.checks?.database === "ok";
+  const regOk = readiness?.checks?.action_registry === "ok";
+
+  return (
+    <Card className="er-card-raised flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2.5">
+      <div className="flex items-center gap-2">
+        <Icon name="server" size={14} className="text-accent" aria-hidden />
+        <span className="er-caption font-medium text-foreground uppercase tracking-wide">
+          System health
+        </span>
+      </div>
+      <HealthPill label="liveness" ok={liveOk} />
+      <HealthPill label="readiness" ok={readyOk} />
+      <HealthPill label="database" ok={dbOk} />
+      <HealthPill
+        label="registry"
+        ok={regOk}
+        detail={readiness?.counts ? `${readiness.counts.actions} actions` : undefined}
+      />
+      <span className="ml-auto er-caption text-muted-foreground/60">
+        refreshed every 30s
+      </span>
+    </Card>
   );
 }

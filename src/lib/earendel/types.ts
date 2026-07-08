@@ -230,6 +230,21 @@ export interface McpRegistry {
   curlInstall: string;
 }
 
+export interface TimeSeriesPoint {
+  ts: string;
+  hourLabel: string;
+  successRate: number;
+  total: number;
+  successes: number;
+  failures: number;
+}
+
+export interface TimeSeries {
+  points: TimeSeriesPoint[];
+  hours: number;
+  generatedAt: string;
+}
+
 export interface DashboardStats {
   connectors: number;
   recordings: number;

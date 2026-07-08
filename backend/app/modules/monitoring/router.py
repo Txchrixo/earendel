@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from ...api.deps import get_action_registry, get_llm_client, get_orchestrator
 from ...infrastructure.llm_client import LLMClient
 from . import service
+from .timeseries_service import timeseries as build_timeseries
 
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
@@ -35,6 +36,16 @@ async def summary_endpoint(
 ) -> dict[str, Any]:
     """Aggregate monitoring summary."""
     return await service.summary(registry)
+
+
+@router.get("/timeseries")
+async def timeseries_endpoint(hours: int = 24) -> dict[str, Any]:
+    """Hourly success-rate + execution-count series for the last N hours.
+
+    Used by the dashboard sparkline + monitoring reliability trend chart.
+    """
+    hours = max(1, min(hours, 168))  # clamp 1h..7d
+    return await build_timeseries(hours)
 
 
 @router.get("/repairs")

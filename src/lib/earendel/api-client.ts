@@ -9,6 +9,7 @@ import type {
   MonitoringSummary,
   PublishedTool,
   McpRegistry,
+  TimeSeries,
   DashboardStats,
   RepairProposal,
 } from "./types";
@@ -58,6 +59,8 @@ export const api = {
   // ---- Dashboard ----
   stats: () => request<DashboardStats>("/api/v1/dashboard/stats"),
   monitoring: () => request<MonitoringSummary>("/api/v1/monitoring/summary"),
+  /** Generic raw GET for endpoints with arbitrary response shapes (e.g. /healthz, /readyz). */
+  raw: <T,>(path: string) => request<T>(path),
 
   // ---- Connectors ----
   listConnectors: () => request<Connector[]>("/api/v1/connectors"),
@@ -115,6 +118,10 @@ export const api = {
     }),
 
   // ---- Monitoring ----
+  timeseries: (hours: number = 24) =>
+    request<TimeSeries>("/api/v1/monitoring/timeseries", {
+      params: { hours: String(hours) },
+    }),
   listRepairs: (actionId?: string) =>
     request<RepairProposal[]>("/api/v1/monitoring/repairs", {
       params: actionId ? { actionId } : undefined,
