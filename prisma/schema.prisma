@@ -1,4 +1,4 @@
-// Earendel Prisma schema — production-ready auth models.
+// Earendel Prisma schema — full relational schema.
 // For production: change provider to "postgresql" and update DATABASE_URL.
 
 generator client {
@@ -10,7 +10,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// A registered user. Can sign in via credentials (email/password) or OAuth (Google).
+// ============ Auth (NextAuth) ============
+
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -24,12 +25,11 @@ model User {
 
   accounts      Account[]
   sessions      Session[]
+  connectors    Connector[]
 
   @@index([email])
 }
 
-/// OAuth account linked to a user (Google, GitHub, etc.).
-/// Required for NextAuth OAuth providers.
 model Account {
   id                String  @id @default(cuid())
   userId            String
@@ -49,8 +49,6 @@ model Account {
   @@index([userId])
 }
 
-/// Server-side session (used if session strategy = "database").
-/// With JWT strategy, this table is optional but kept for future flexibility.
 model Session {
   id           String   @id @default(cuid())
   sessionToken String   @unique
@@ -62,11 +60,160 @@ model Session {
   @@index([userId])
 }
 
-/// Email verification tokens (for password reset, email verification).
 model VerificationToken {
   identifier String
   token      String   @unique
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// ============ Core Domain ============
+
+/// An authorised bridge to a target app/portal.
+model Connector {
+  id            String   @id @default(cuid())
+  name          String
+  targetApp     String
+  targetDomain  String
+  workflow      String
+  category      String   @default("other")
+  permission    String   @default("read_only")
+  riskLevel     String   @default("low")
+  allowedDomains String   @default("[]")
+  authMethod    String   @default("password")
+  status        String   @default("active")
+  credentialVaultKey String @default("")
+  userId        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User?     @relation(fields: [userId], references: [id])
+  actions       TypedAction[]
+  recordings    Recording[]
+
+  @@index([userId])
+  @@index([category])
+  @@index([status])
+}
+
+/// A compiled, versioned, risk-gated typed action.
+model TypedAction {
+  id              String   @id @default(cuid())
+  connectorId     String
+  name            String
+  signature       String
+  description     String
+  category        String   @default("other")
+  contract        String   @default("{}")
+  permissions     String   @default("read_only")
+  riskLevel       String   @default("low")
+  executionMethods String  @default("[]")
+  preferredAdapter String  @default("api")
+  status          String   @default("draft")
+  version         String   @default("0.1.0")
+  versions        String   @default("[]")
+  testsPassed     Int      @default(0)
+  testsTotal      Int      @default(0)
+  canary          String   @default("[]")
+  publishedAs     String   @default("[]")
+  mcpToolName     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  connector       Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  executions      Execution[]
+  repairs         RepairProposal[]
+
+  @@index([connectorId])
+  @@index([status])
+  @@index([category])
+}
+
+/// A captured workflow recording (before compilation).
+model Recording {
+  id              String   @id @default(cuid())
+  connectorId     String
+  name            String
+  steps           String   @default("[]")
+  totalDurationMs Int      @default(0)
+  networkRequests Int      @default(0)
+  domMutations    Int      @default(0)
+  screenshots     Int      @default(0)
+  harCaptured     Boolean  @default(true)
+  status          String   @default("captured")
+  compiledActionId String?
+  createdAt       DateTime @default(now())
+
+  connector       Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  @@index([connectorId])
+  @@index([status])
+}
+
+/// An execution of a typed action through the multi-adapter chain.
+model Execution {
+  id              String   @id @default(cuid())
+  actionId        String
+  actionName      String
+  caller          String   @default("manual")
+  inputs          String   @default("{}")
+  outputs         String?
+  adapter         String   @default("api")
+  fallbackChain   String   @default("[]")
+  status          String   @default("queued")
+  durationMs      Int      @default(0)
+  traces          String   @default("[]")
+  screenshots     String   @default("[]")
+  postconditionsMet Boolean?
+  errorMessage    String?
+  riskApproved    Boolean  @default(true)
+  startedAt       DateTime @default(now())
+  finishedAt      DateTime?
+
+  action          TypedAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+
+  @@index([actionId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+/// A repair proposal for a failed selector.
+model RepairProposal {
+  id              String   @id @default(cuid())
+  actionId        String
+  actionVersion   String
+  failedSelector  String
+  candidateSelector String
+  candidateLabel  String
+  confidence      Float    @default(0.8)
+  reason          String
+  status          String   @default("pending")
+  detectedAt      DateTime @default(now())
+
+  action          TypedAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+
+  @@index([actionId])
+  @@index([status])
+}
+
+/// Human review queue (for high-risk actions).
+model Review {
+  id              String   @id @default(cuid())
+  actionId        String
+  actionName      String
+  actionVersion   String
+  caller          String
+  inputs          String   @default("{}")
+  prompt          String
+  expectedOutputs String   @default("[]")
+  status          String   @default("pending")
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  outputs         String?
+  rejectReason    String?
+  createdAt       DateTime @default(now())
+
+  @@index([actionId])
+  @@index([status])
 }
