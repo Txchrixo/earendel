@@ -94,3 +94,62 @@ jobs:
           python -m pytest tests/ -v --tb=short
         env:
           EARENDEL_SEED_ON_STARTUP: "false"
+
+  # ---- Brique 4: E2E tests (playwright) ----
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install bcrypt PyJWT
+
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium
+
+      - name: Start backend
+        run: |
+          cd backend
+          python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 &
+          sleep 5
+        env:
+          EARENDEL_SEED_ON_STARTUP: "true"
+
+      - name: Start Next.js
+        run: |
+          bun run dev &
+          sleep 10
+        env:
+          NEXTAUTH_URL: "http://localhost:3000"
+          NEXTAUTH_SECRET: "ci-test-secret-do-not-use-in-production"
+          BACKEND_SECRET: "ci-test-secret-do-not-use-in-production"
+
+      - name: Run Playwright tests
+        run: bunx playwright test --reporter=list
+        env:
+          PLAYWRIGHT_BASE_URL: "http://localhost:3000"
