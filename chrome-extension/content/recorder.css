@@ -1,0 +1,21 @@
+# Earendel Recorder CSS — injected into pages during recording
+# Minimal, non-intrusive styles for the recording indicator
+
+#earendel-indicator {
+  position: fixed !important;
+  top: 16px !important;
+  right: 16px !important;
+  z-index: 2147483647 !important;
+  background: #7A8548 !important;
+  color: #1F1A17 !important;
+  font-family: -apple-system, system-ui, sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  padding: 8px 16px !important;
+  border-radius: 9999px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+  pointer-events: none !important;
+}

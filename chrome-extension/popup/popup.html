@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Earendel Recorder</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 360px;
+      font-family: 'Hanken Grotesk', -apple-system, system-ui, sans-serif;
+      background: #1F1A17;
+      color: #E8E0D4;
+      padding: 16px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .logo {
+      font-size: 20px;
+      color: #E8E0D4;
+    }
+    .title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 20px;
+      font-weight: 500;
+    }
+    .subtitle {
+      font-size: 12px;
+      color: #A5A19B;
+      margin-bottom: 16px;
+    }
+    .section {
+      margin-bottom: 16px;
+    }
+    .label {
+      font-size: 12px;
+      color: #A5A19B;
+      margin-bottom: 4px;
+      display: block;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    input, select {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #42403D;
+      border-radius: 9999px;
+      background: #2C2722;
+      color: #E8E0D4;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+    }
+    input:focus, select:focus {
+      border-color: #6B5876;
+    }
+    .btn {
+      width: 100%;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 9999px;
+      font-size: 14px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary {
+      background: #6B5876;
+      color: #1F1A17;
+    }
+    .btn-danger {
+      background: #B5454A;
+      color: #E8E0D4;
+    }
+    .btn-outline {
+      background: transparent;
+      border: 1px solid #42403D;
+      color: #E8E0D4;
+    }
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .stat {
+      background: #2C2722;
+      border: 1px solid #42403D;
+      border-radius: 8px;
+      padding: 8px 12px;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 20px;
+      font-weight: 600;
+      font-family: 'Cormorant Garamond', serif;
+      color: #E8E0D4;
+    }
+    .stat-label {
+      font-size: 10px;
+      color: #A5A19B;
+      text-transform: uppercase;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .status-idle {
+      background: rgba(165,161,155,0.15);
+      color: #A5A19B;
+    }
+    .status-recording {
+      background: rgba(122,133,72,0.2);
+      color: #7A8548;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .dot-idle { background: #A5A19B; }
+    .dot-recording {
+      background: #7A8548;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .error {
+      background: rgba(181,69,74,0.15);
+      border: 1px solid rgba(181,69,74,0.4);
+      color: #D88A8D;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+    .success {
+      background: rgba(122,133,72,0.15);
+      border: 1px solid rgba(122,133,72,0.4);
+      color: #B9C77E;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+    .divider {
+      height: 1px;
+      background: #42403D;
+      margin: 12px 0;
+    }
+    .setup-link {
+      font-size: 12px;
+      color: #6B5876;
+      cursor: pointer;
+      text-decoration: underline;
+      margin-top: 8px;
+      display: block;
+    }
+    .setup-panel {
+      display: none;
+      margin-top: 12px;
+    }
+    .setup-panel.visible {
+      display: block;
+    }
+    .steps-preview {
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #42403D;
+      border-radius: 8px;
+      padding: 8px;
+    }
+    .step-item {
+      padding: 6px 8px;
+      border-bottom: 1px solid #2C2722;
+      font-size: 12px;
+    }
+    .step-item:last-child { border-bottom: none; }
+    .step-type {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-right: 6px;
+    }
+    .step-type-navigate { background: rgba(107,88,118,0.3); color: #B8A6C4; }
+    .step-type-click { background: rgba(122,133,72,0.2); color: #B9C77E; }
+    .step-type-input { background: rgba(201,166,107,0.2); color: #D9B97A; }
+    .step-type-download { background: rgba(139,111,90,0.3); color: #C49A7E; }
+    .step-type-submit { background: rgba(181,69,74,0.2); color: #D88A8D; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="logo">🔭</span>
+    <span class="title">Earendel</span>
+  </div>
+  <p class="subtitle">Capture authorized workflows. Compile to typed actions.</p>
+
+  <!-- Status badge -->
+  <div id="status-section">
+    <span class="status-badge status-idle" id="status-badge">
+      <span class="dot dot-idle"></span>
+      <span id="status-text">Idle</span>
+    </span>
+  </div>
+
+  <!-- Recording controls -->
+  <div class="section" id="recording-controls">
+    <div>
+      <label class="label" for="connector-name">Connector</label>
+      <input type="text" id="connector-name" placeholder="e.g. Stripe API" value="Stripe API">
+    </div>
+    <div style="margin-top: 8px;">
+      <label class="label" for="workflow-name">Workflow</label>
+      <input type="text" id="workflow-name" placeholder="e.g. downloadInvoice" value="downloadInvoice">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="start-btn">Start Recording</button>
+      <button class="btn btn-danger" id="stop-btn" style="display:none;">Stop</button>
+    </div>
+  </div>
+
+  <!-- Live stats (hidden until recording) -->
+  <div id="stats-section" style="display:none;">
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-value" id="stat-steps">0</div>
+        <div class="stat-label">Steps</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-network">0</div>
+        <div class="stat-label">Network</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-dom">0</div>
+        <div class="stat-label">DOM Mut.</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-screenshots">0</div>
+        <div class="stat-label">Screenshots</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Steps preview (hidden until recording) -->
+  <div id="steps-section" style="display:none;">
+    <div class="divider"></div>
+    <label class="label">Captured steps</label>
+    <div class="steps-preview" id="steps-preview"></div>
+  </div>
+
+  <!-- Post-recording actions -->
+  <div id="post-recording" style="display:none;">
+    <div class="divider"></div>
+    <div class="btn-row">
+      <button class="btn btn-outline" id="discard-btn">Discard</button>
+      <button class="btn btn-primary" id="compile-btn">Compile to Action</button>
+    </div>
+  </div>
+
+  <!-- Messages -->
+  <div id="message-area"></div>
+
+  <!-- Setup -->
+  <span class="setup-link" id="setup-link">⚙ Backend settings</span>
+  <div class="setup-panel" id="setup-panel">
+    <div class="divider"></div>
+    <label class="label" for="backend-secret">Backend Secret (JWT)</label>
+    <input type="password" id="backend-secret" placeholder="BACKEND_SECRET from .env">
+    <button class="btn btn-outline" id="save-secret-btn" style="margin-top:8px;">Save</button>
+  </div>
+
+  <script src="popup/popup.js"></script>
+</body>
+</html>
