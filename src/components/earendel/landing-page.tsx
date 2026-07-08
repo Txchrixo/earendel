@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import { motion } from "framer-motion";
+import { signIn } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +40,19 @@ const STATS = [
 ];
 
 export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
+  const router = useRouter();
+
+  const handleDemo = async () => {
+    const result = await signIn("credentials", {
+      demo: "true",
+      redirect: false,
+    });
+    if (!result?.error) {
+      router.push("/");
+      router.refresh();
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Nav */}
@@ -57,6 +72,7 @@ export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
           </div>
           <div className="flex items-center gap-2">
             <Button size="sm" variant="ghost" onClick={onAuth}>Sign in</Button>
+            <Button size="sm" variant="outline" onClick={handleDemo}>Demo</Button>
             <Button size="sm" onClick={onSignUp}>Get started</Button>
           </div>
         </div>
@@ -121,12 +137,12 @@ export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
                 <Button size="lg" onClick={onSignUp}>
                   <Icon name="plus" size={16} aria-hidden /> Get started free
                 </Button>
-                <Button size="lg" variant="outline" onClick={onAuth}>
-                  <Icon name="person" size={16} aria-hidden /> Sign in
+                <Button size="lg" variant="outline" onClick={handleDemo}>
+                  <Icon name="playground" size={16} aria-hidden /> Try the demo
                 </Button>
               </div>
               <p className="er-caption mt-4 text-muted-foreground/60">
-                No credit card. 6 seeded connectors ready to explore.
+                No signup needed for demo. 6 seeded connectors ready to explore.
               </p>
             </motion.div>
           </div>

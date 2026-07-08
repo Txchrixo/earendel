@@ -47,8 +47,31 @@ export const authOptions: NextAuthOptions = {
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
+        demo: { label: "Demo", type: "text" },
       },
       async authorize(credentials) {
+        // Demo mode: skip password check, create/use a demo user
+        if (credentials?.demo === "true") {
+          const demoEmail = "demo@earendel.io";
+          let demoUser = await prisma.user.findUnique({
+            where: { email: demoEmail },
+          });
+          if (!demoUser) {
+            demoUser = await prisma.user.create({
+              data: {
+                email: demoEmail,
+                name: "Demo User",
+                role: "owner",
+              },
+            });
+          }
+          return {
+            id: demoUser.id,
+            email: demoUser.email,
+            name: demoUser.name ?? "Demo User",
+          };
+        }
+
         if (!credentials?.email || !credentials?.password) return null;
 
         const user = await prisma.user.findUnique({
