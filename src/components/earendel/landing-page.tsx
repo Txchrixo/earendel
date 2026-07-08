@@ -62,24 +62,43 @@ export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
         </div>
       </nav>
 
-      {/* Hero — with interactive browser preview on desktop wallpaper */}
+      {/* Hero — halftone pattern background, immersive headline, preview window */}
       <section className="relative overflow-hidden">
-        {/* Desktop wallpaper background (1230x720 area) */}
-        <div className="relative mx-auto max-w-[1230px]">
-          <div
-            className="absolute inset-0 h-[720px] w-full opacity-30"
-            style={{
-              backgroundImage: "url(/art-bg.webp)",
-              backgroundSize: "cover",
-              backgroundPosition: "center",
-              maskImage: "linear-gradient(180deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.2) 60%, transparent 100%)",
-              WebkitMaskImage: "linear-gradient(180deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.2) 60%, transparent 100%)",
-            }}
-            aria-hidden
-          />
+        {/* Halftone pattern background — visible dots in Earendel palette */}
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `
+              radial-gradient(circle, rgba(107,88,118,0.35) 1.5px, transparent 2px),
+              radial-gradient(circle, rgba(122,133,72,0.25) 1px, transparent 1.5px)
+            `,
+            backgroundSize: "18px 18px, 26px 26px",
+            backgroundPosition: "0 0, 9px 9px",
+            maskImage: "radial-gradient(ellipse 85% 70% at 50% 30%, rgba(0,0,0,1) 0%, rgba(0,0,0,0.5) 50%, transparent 100%)",
+            WebkitMaskImage: "radial-gradient(ellipse 85% 70% at 50% 30%, rgba(0,0,0,1) 0%, rgba(0,0,0,0.5) 50%, transparent 100%)",
+          }}
+          aria-hidden
+        />
 
+        {/* Large ambient glow — primary + accent */}
+        <div
+          className="absolute left-1/2 top-0 h-[500px] w-[800px] -translate-x-1/2 opacity-20"
+          style={{
+            background: "radial-gradient(ellipse at center, rgba(107,88,118,0.4) 0%, transparent 60%)",
+          }}
+          aria-hidden
+        />
+        <div
+          className="absolute right-0 top-[200px] h-[400px] w-[600px] opacity-15"
+          style={{
+            background: "radial-gradient(ellipse at center, rgba(122,133,72,0.3) 0%, transparent 60%)",
+          }}
+          aria-hidden
+        />
+
+        <div className="relative mx-auto max-w-[1230px]">
           {/* Hero content */}
-          <div className="relative px-6 pt-16 pb-8 text-center">
+          <div className="px-6 pt-20 pb-12 text-center">
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
@@ -88,14 +107,17 @@ export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
               <Badge className="er-pill-primary mb-6">
                 <Icon name="sparkles" size={12} aria-hidden /> Reliability layer for agent-grade workflows
               </Badge>
-              <h1 className="er-hero font-heading max-w-3xl mx-auto">
-                Turn repeated human workflows into typed, monitored, repairable agent tools.
+              <h1 className="er-hero font-heading max-w-3xl mx-auto leading-[1.05]">
+                Record workflows.{" "}
+                <span className="text-accent">Compile to actions.</span>{" "}
+                Let agents call them.
               </h1>
-              <p className="er-body mx-auto mt-4 max-w-xl text-muted-foreground">
-                Businesses still run on portals built for humans, not agents. Earendel records
-                those workflows, compiles them into typed actions, and publishes them as MCP tools.
+              <p className="er-body mx-auto mt-5 max-w-xl text-muted-foreground">
+                Businesses still run on portals built for humans. Earendel turns
+                those repeated, authorised workflows into typed, monitored, repairable
+                tools your agents can call through MCP.
               </p>
-              <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
                 <Button size="lg" onClick={onSignUp}>
                   <Icon name="plus" size={16} aria-hidden /> Get started free
                 </Button>
@@ -103,10 +125,13 @@ export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
                   <Icon name="person" size={16} aria-hidden /> Sign in
                 </Button>
               </div>
+              <p className="er-caption mt-4 text-muted-foreground/60">
+                No credit card. 6 seeded connectors ready to explore.
+              </p>
             </motion.div>
           </div>
 
-          {/* Interactive browser preview (1080x624 centered in 1230 width) */}
+          {/* Interactive browser preview (1080px wide, centered in 1230) */}
           <motion.div
             id="preview"
             initial={{ opacity: 0, y: 20 }}
