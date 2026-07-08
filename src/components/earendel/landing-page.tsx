@@ -42,6 +42,26 @@ const STATS = [
 export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
   const router = useRouter();
 
+  // Nav: transparent at top, solid (bg + border) on scroll
+  React.useEffect(() => {
+    const nav = document.getElementById("landing-nav");
+    if (!nav) return;
+    const onScroll = () => {
+      if (window.scrollY > 20) {
+        nav.style.background = "var(--background)";
+        nav.style.borderBottom = "1px solid var(--border)";
+        nav.style.backdropFilter = "blur(8px)";
+      } else {
+        nav.style.background = "transparent";
+        nav.style.borderBottom = "none";
+        nav.style.backdropFilter = "none";
+      }
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   const handleDemo = async () => {
     const result = await signIn("credentials", {
       demo: "true",
@@ -55,13 +75,11 @@ export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* Nav */}
-      <nav className="sticky top-0 z-30 border-b border-border bg-background/90 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-[1230px] items-center justify-between px-6">
+      {/* Nav — transparent at top, solid on scroll */}
+      <nav className="fixed top-0 left-0 right-0 z-30 transition-all duration-300" id="landing-nav">
+        <div className="mx-auto flex h-14 max-w-[1230px] items-center justify-between px-6" id="nav-inner">
           <div className="flex items-center gap-2.5">
-            <span className="grid size-8 place-items-center rounded-md bg-primary text-primary-foreground">
-              <Icon name="telescope" size={18} aria-hidden />
-            </span>
+            <Icon name="telescope" size={20} className="text-foreground" aria-hidden />
             <span className="font-heading text-lg">Earendel</span>
           </div>
           <div className="hidden items-center gap-6 md:flex">
@@ -71,15 +89,15 @@ export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
             <a href="#research" className="er-caption text-muted-foreground hover:text-foreground">Research</a>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="ghost" onClick={onAuth}>Sign in</Button>
-            <Button size="sm" variant="outline" onClick={handleDemo}>Demo</Button>
-            <Button size="sm" onClick={onSignUp}>Get started</Button>
+            <Button size="sm" variant="ghost" className="rounded-full" onClick={onAuth}>Sign in</Button>
+            <Button size="sm" variant="outline" className="rounded-full" onClick={handleDemo}>Demo</Button>
+            <Button size="sm" className="rounded-full" onClick={onSignUp}>Get started</Button>
           </div>
         </div>
       </nav>
 
       {/* Hero — halftone pattern background, immersive headline, preview window */}
-      <section className="relative overflow-hidden">
+      <section className="relative overflow-hidden pt-14">
         {/* Halftone pattern background — visible dots in Earendel palette */}
         <div
           className="absolute inset-0"
@@ -134,10 +152,10 @@ export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
                 tools your agents can call through MCP.
               </p>
               <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-                <Button size="lg" onClick={onSignUp}>
+                <Button size="lg" className="rounded-full" onClick={onSignUp}>
                   <Icon name="plus" size={16} aria-hidden /> Get started free
                 </Button>
-                <Button size="lg" variant="outline" onClick={handleDemo}>
+                <Button size="lg" variant="outline" className="rounded-full" onClick={handleDemo}>
                   <Icon name="playground" size={16} aria-hidden /> Try the demo
                 </Button>
               </div>
@@ -280,7 +298,7 @@ export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
           Record your first workflow in under five minutes. Compile it to a typed action.
           Publish it as an MCP tool. Let your agents call it reliably.
         </p>
-        <Button size="lg" className="mt-6" onClick={onSignUp}>
+        <Button size="lg" className="mt-6 rounded-full" onClick={onSignUp}>
           <Icon name="telescope" size={16} aria-hidden /> Get started free
         </Button>
       </section>
