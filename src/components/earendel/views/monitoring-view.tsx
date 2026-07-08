@@ -475,9 +475,24 @@ function ReliabilityTrend() {
           <Icon name="graph" size={14} aria-hidden />
           <h3 className="er-h3">Reliability trend</h3>
         </div>
-        <span className="er-caption text-muted-foreground">
-          {series.length > 0 ? "last 24 hours" : "last 7 days"}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="er-caption text-muted-foreground">
+            {series.length > 0 ? "last 24 hours" : "last 7 days"}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              window.open(
+                `/api/v1/monitoring/timeseries.csv?XTransformPort=8001&hours=24`,
+                "_blank",
+              );
+            }}
+            title="Export hourly timeseries as CSV"
+          >
+            <Icon name="download" size={12} aria-hidden /> CSV
+          </Button>
+        </div>
       </div>
       <div className="h-40">
         <ResponsiveContainer width="100%" height="100%">

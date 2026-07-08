@@ -275,10 +275,45 @@ export interface SearchExecutionHit {
   durationMs: number;
 }
 
+export interface SearchRecordingHit {
+  id: string;
+  name: string;
+  connectorId: string;
+  status: string;
+  steps: number;
+}
+
+export interface SearchRepairHit {
+  id: string;
+  actionId: string;
+  actionVersion: string;
+  status: string;
+  confidence: number;
+  candidateSelector: string;
+  reason: string;
+}
+
 export interface SearchResults {
   actions: SearchActionHit[];
   connectors: SearchConnectorHit[];
   executions: SearchExecutionHit[];
+  recordings: SearchRecordingHit[];
+  repairs: SearchRepairHit[];
+}
+
+export interface ActivityEvent {
+  type: "execution" | "repair" | "recording" | "version";
+  ts: string;
+  title: string;
+  description: string;
+  refId: string;
+  refType: "execution" | "repair" | "recording" | "action";
+  status: string;
+}
+
+export interface ActivityFeed {
+  events: ActivityEvent[];
+  total: number;
 }
 
 export interface DashboardStats {

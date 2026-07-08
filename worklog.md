@@ -628,3 +628,48 @@ Task: Continuous QA + version_manager contract snapshot + connector Health card 
    - Connector detail: add a "Run all canaries" button that triggers canaries for all the connector's actions.
    - A "recent activity" feed on the dashboard (last 5 events across the system).
 5. **Cron stability**: services stayed up throughout this round. The cron job should continue to restart via `python3 /home/z/my-project/start_services.py` if health checks fail.
+
+---
+Task ID: 14
+Agent: cron-webDevReview (round 9)
+Task: Continuous QA + extended search (recordings + repairs) + dashboard activity feed + CSV export button + code-health (lint fixes).
+
+## Current project status assessment
+- Services: Next.js (3000) + FastAPI (8001) + Caddy (81) all healthy, daemonized via `start_services.py`.
+- QA sweep across all 9 views: zero console errors, zero console warnings. Dashboard shows 6 connectors / 5 published actions / 10 executions / 70% success.
+- Round 8 delivered: version_manager contract snapshots, connector Health card, global search (actions/connectors/executions), CSV endpoint, Dependencies 404 fix. All still working.
+- VLM (glm-4.6v) rated the dashboard 8/10, monitoring 8/10, connector health 8/10.
+
+## Completed modifications
+1. **Extended search to cover recordings + repairs** (backend `/api/v1/search` + frontend `GlobalSearch`):
+   - Backend: the search endpoint now also searches recordings (name, status) and repairs (status, reason, candidateSelector, failedSelector). Returns 5 groups: actions, connectors, executions, recordings, repairs — each capped at 10.
+   - Frontend: GlobalSearch totalHits now includes recordings + repairs. New "Recordings" group (icon=recorder, name + status + step count, click → navigates to recorder view) and "Repairs" group (icon=wrench, candidateSelector + status + confidence + reason, click → navigates to monitoring view) with status-appropriate pills.
+   - Added `SearchRecordingHit` + `SearchRepairHit` TS types.
+   - Verified: searched "compiled" → "Recordings" group shows 2 recordings (downloadInvoice compiled · 10 steps, trackShipment compiled · 8 steps) with "Compiled" badges. Searched "pending" → 1 repair hit.
+2. **Dashboard recent-activity feed** (new `ActivityFeedSection` in `dashboard-sections.tsx` + backend `/api/v1/dashboard/activity`):
+   - Backend: new `GET /api/v1/dashboard/activity` endpoint aggregates events from executions (startedAt), repairs (detectedAt), recordings (createdAt), and version bumps (releasedAt) across all actions. Returns `{events: [...], total}` sorted by ts desc, capped at 12 events. Each event has type/ts/title/description/refId/refType/status.
+   - Frontend: new `ActivityFeedSection` placed between OpenRepairs and SystemHealth on the dashboard. Renders a timeline list with: per-type gradient icon tile (execution=executions, repair=wrench, recording=recorder, version=versions), title + description, status pill (success/failed/degraded/pending/approved/latest/compiled with appropriate gradient colors), time-ago (s/m/h/d). Execution + version events are clickable (navigate to execution detail / action detail). Auto-refreshes every 30s. Loading skeletons + empty state.
+   - Added `ActivityEvent` + `ActivityFeed` TS types + `api.activity()` method.
+   - Verified: dashboard shows "Recent activity · Last events across executions, repairs, recordings, and versions" with version bumps (fillSecurityQuestionnaire v1.2.0, exportNewCandidates v1.2.0, etc.) showing "selector hardened after repair" changelog + "Latest" badge + "27m" time-ago.
+3. **CSV export button on monitoring reliability trend** (`monitoring-view.tsx`):
+   - Added a "CSV" button (download icon) next to the "last 24 hours" label on the ReliabilityTrend card. Clicking opens `/api/v1/monitoring/timeseries.csv?XTransformPort=8001&hours=24` in a new tab, triggering the CSV download (added in round 8).
+   - Verified: monitoring view shows "Reliability trend · last 24 hours · CSV" button.
+4. **Lint fix**: `ActivityFeedSection` used `Badge` which wasn't imported in dashboard-sections.tsx → added `import { Badge } from "@/components/ui/badge"`. Caught by lint, fixed before verification.
+
+## Verification results
+- `bun run lint` → 0 errors, 0 warnings.
+- dev.log: clean compiles. backend.log: clean, all endpoints 200 (including new `/search` with 5 groups + `/dashboard/activity`).
+- agent-browser: dashboard activity feed renders (12 events: version bumps + executions + repairs + recordings with time-ago + status pills); monitoring CSV button visible; extended search "compiled" returns 2 recordings, "pending" returns 1 repair. Zero console errors.
+- VLM rated the dashboard 8/10.
+
+## Unresolved issues / risks + next-phase recommendations
+1. **executions-sections.tsx + publishing-view.tsx still large** (~850 + ~700 lines): code-health split recommended since round 5. Still not done (focused on features each round). The publishing-view split was planned this round but deferred to prioritize the activity feed + search extension. Should be the priority next round.
+2. **Activity feed events aren't deduplicated**: a single execution produces one event, but a version bump + the execution that triggered it both appear. Acceptable for a feed (shows all activity) but could add a "related events" grouping.
+3. **Search recordings click navigates to recorder view (generic)**: clicking a recording result doesn't open a specific recording detail (there's no recording-detail view). It just switches to the recorder view. A recording-detail view would close the loop.
+4. **Next-phase feature priorities** (ranked):
+   - Split executions-sections.tsx + publishing-view.tsx into focused helper files (code health — long overdue, deferred 4 rounds).
+   - Recording-detail view (so search recording results can navigate to a specific recording).
+   - Connector detail: "Run all canaries" button that triggers canaries for all the connector's actions.
+   - Dashboard: make the activity feed filterable (by event type).
+   - A keyboard shortcut (⌘K) to focus the global search.
+5. **Cron stability**: services stayed up throughout this round. The cron job should continue to restart via `python3 /home/z/my-project/start_services.py` if health checks fail.

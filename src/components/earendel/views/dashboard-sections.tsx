@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Icon, type ErIconName } from "../icon";
 import { useApi } from "../use-api";
@@ -15,6 +16,8 @@ import type {
   DashboardStats,
   MonitoringSummary,
   TimeSeries,
+  ActivityFeed,
+  ActivityEvent,
   Execution,
   RepairProposal,
 } from "@/lib/earendel/types";
@@ -553,5 +556,116 @@ export function SystemHealthStrip() {
         </div>
       )}
     </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* ActivityFeedSection — recent system events                          */
+/* ------------------------------------------------------------------ */
+
+const ACTIVITY_ICON: Record<string, ErIconName> = {
+  execution: "executions",
+  repair: "wrench",
+  recording: "recorder",
+  version: "versions",
+};
+
+const ACTIVITY_STATUS_PILL: Record<string, string> = {
+  success: "er-pill-success",
+  failed: "er-pill-danger",
+  degraded: "er-pill-warn",
+  human_review: "er-pill-warn",
+  pending: "er-pill-warn",
+  approved: "er-pill-success",
+  rejected: "er-pill-danger",
+  auto_applied: "er-pill-success",
+  latest: "er-pill-primary",
+  stable: "er-pill-neutral",
+  compiled: "er-pill-primary",
+  captured: "er-pill-neutral",
+};
+
+function timeAgoShort(iso: string): string {
+  const d = new Date(iso);
+  const s = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
+
+export function ActivityFeedSection() {
+  const { data, loading, error } = useApi<ActivityFeed>(
+    () => api.activity(),
+    [],
+    { refetchInterval: 30000 },
+  );
+  const openAction = useStudio((s) => s.openAction);
+  const openExecution = useStudio((s) => s.openExecution);
+
+  const handleNavigate = (e: ActivityEvent) => {
+    if (e.refType === "execution") openExecution(e.refId);
+    else if (e.refType === "action") openAction(e.refId);
+  };
+
+  return (
+    <section>
+      <SectionTitle
+        icon="history"
+        title="Recent activity"
+        subtitle="Last events across executions, repairs, recordings, and versions"
+      />
+      <Card className="er-card-raised overflow-hidden p-0">
+        {error ? (
+          <p className="er-caption text-muted-foreground p-4">
+            Backend connecting… activity will appear here shortly.
+          </p>
+        ) : loading ? (
+          <div className="space-y-2 p-4">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
+          </div>
+        ) : (data?.events.length ?? 0) === 0 ? (
+          <p className="er-caption text-muted-foreground p-4 text-center">No recent activity.</p>
+        ) : (
+          <ol className="divide-y divide-border">
+            {data!.events.map((e, i) => {
+              const icon = ACTIVITY_ICON[e.type] ?? "dot";
+              const pill = ACTIVITY_STATUS_PILL[e.status] ?? "er-pill-neutral";
+              const clickable = e.refType === "execution" || e.refType === "action";
+              return (
+                <li
+                  key={`${e.type}-${e.refId}-${i}`}
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-2.5",
+                    clickable && "cursor-pointer hover:bg-secondary/40 er-lift",
+                  )}
+                  onClick={() => clickable && handleNavigate(e)}
+                >
+                  <span
+                    className="grid size-7 place-items-center rounded-md shrink-0"
+                    style={{
+                      background: "linear-gradient(135deg, rgba(107,88,118,0.30), rgba(122,133,72,0.12))",
+                      color: "#A5A19B",
+                    }}
+                  >
+                    <Icon name={icon} size={13} aria-hidden />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-foreground truncate">{e.title}</p>
+                    <p className="er-caption text-muted-foreground truncate">{e.description}</p>
+                  </div>
+                  <Badge className={cn("text-[10px] capitalize", pill)}>{e.status.replace("_", " ")}</Badge>
+                  <span className="er-caption text-muted-foreground/70 w-8 text-right tabular-nums">
+                    {timeAgoShort(e.ts)}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </Card>
+    </section>
   );
 }

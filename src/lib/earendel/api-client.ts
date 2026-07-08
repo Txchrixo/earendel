@@ -11,6 +11,7 @@ import type {
   McpRegistry,
   TimeSeries,
   SearchResults,
+  ActivityFeed,
   DashboardStats,
   RepairProposal,
 } from "./types";
@@ -60,6 +61,7 @@ export const api = {
   // ---- Dashboard ----
   stats: () => request<DashboardStats>("/api/v1/dashboard/stats"),
   monitoring: () => request<MonitoringSummary>("/api/v1/monitoring/summary"),
+  activity: () => request<ActivityFeed>("/api/v1/dashboard/activity"),
   /** Generic raw GET for endpoints with arbitrary response shapes (e.g. /healthz, /readyz). */
   raw: <T,>(path: string) => request<T>(path),
   /** Global search across actions, connectors, and executions. */

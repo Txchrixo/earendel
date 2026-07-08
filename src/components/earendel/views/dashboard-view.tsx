@@ -9,6 +9,7 @@ import {
   RecentExecutionsSection,
   OpenRepairsSection,
   SystemHealthStrip,
+  ActivityFeedSection,
 } from "./dashboard-sections";
 
 /**
@@ -36,6 +37,7 @@ export function DashboardView() {
         <RecentExecutionsSection />
       </div>
       <OpenRepairsSection />
+      <ActivityFeedSection />
       <SystemHealthStrip />
     </motion.div>
   );

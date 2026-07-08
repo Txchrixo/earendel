@@ -124,7 +124,7 @@ async def search_endpoint(
     q: str,
     registry=Depends(get_action_registry),
 ) -> dict:
-    """Global search across actions, connectors, and executions.
+    """Global search across actions, connectors, executions, recordings, and repairs.
 
     Returns matched items grouped by type, with enough metadata for the
     frontend to navigate to the right view.
@@ -133,7 +133,8 @@ async def search_endpoint(
     from .modules.executions.repository import list_executions
     query = (q or "").strip().lower()
     if not query:
-        return {"actions": [], "connectors": [], "executions": []}
+        return {"actions": [], "connectors": [], "executions": [],
+                "recordings": [], "repairs": []}
 
     actions = [
         {
@@ -187,7 +188,120 @@ async def search_endpoint(
         or any(query in str(v).lower() for v in e.inputs.values())
     ][:10]
 
-    return {"actions": actions, "connectors": connectors, "executions": executions}
+    recordings = [
+        {
+            "id": r["id"],
+            "name": r.get("name", ""),
+            "connectorId": r.get("connectorId", ""),
+            "status": r.get("status", ""),
+            "steps": len(r.get("steps", [])),
+        }
+        for r in await doc_list("recordings")
+        if query in r.get("name", "").lower()
+        or query in r.get("status", "").lower()
+    ][:10]
+
+    repairs = [
+        {
+            "id": r["id"],
+            "actionId": r.get("actionId", ""),
+            "actionVersion": r.get("actionVersion", ""),
+            "status": r.get("status", ""),
+            "confidence": r.get("confidence", 0),
+            "candidateSelector": r.get("candidateSelector", ""),
+            "reason": r.get("reason", ""),
+        }
+        for r in await doc_list("repairs")
+        if query in r.get("status", "").lower()
+        or query in r.get("reason", "").lower()
+        or query in r.get("candidateSelector", "").lower()
+        or query in r.get("failedSelector", "").lower()
+    ][:10]
+
+    return {
+        "actions": actions,
+        "connectors": connectors,
+        "executions": executions,
+        "recordings": recordings,
+        "repairs": repairs,
+    }
+
+
+@app.get("/api/v1/dashboard/activity")
+async def dashboard_activity_endpoint(
+    registry=Depends(get_action_registry),
+) -> dict:
+    """Recent activity feed — last N events across the system (executions,
+    repairs, recordings, version bumps) sorted by time, most recent first."""
+    from .infrastructure.database import doc_list
+    from .modules.executions.repository import list_executions
+    from datetime import datetime
+
+    events: list[dict] = []
+    now = datetime.utcnow()
+
+    # Executions
+    for e in await list_executions():
+        events.append({
+            "type": "execution",
+            "ts": e.startedAt.isoformat() + "Z",
+            "title": f"{e.actionName} {e.status.value}",
+            "description": f"{e.caller.value} · {e.adapter.value} · {e.durationMs}ms",
+            "refId": e.id,
+            "refType": "execution",
+            "status": e.status.value,
+        })
+
+    # Repairs
+    for r in await doc_list("repairs"):
+        ts = r.get("detectedAt", now.isoformat())
+        if isinstance(ts, str):
+            ts_parsed = ts
+        else:
+            ts_parsed = ts.isoformat() + "Z"
+        events.append({
+            "type": "repair",
+            "ts": ts_parsed,
+            "title": f"Repair {r.get('status', 'pending')}",
+            "description": r.get("reason", "")[:80],
+            "refId": r.get("id", ""),
+            "refType": "repair",
+            "status": r.get("status", "pending"),
+        })
+
+    # Recordings
+    for r in await doc_list("recordings"):
+        ts = r.get("createdAt", now.isoformat())
+        if isinstance(ts, str):
+            ts_parsed = ts
+        else:
+            ts_parsed = ts.isoformat() + "Z"
+        events.append({
+            "type": "recording",
+            "ts": ts_parsed,
+            "title": f"Recording {r.get('status', 'captured')}",
+            "description": f"{r.get('name', '')} · {len(r.get('steps', []))} steps",
+            "refId": r.get("id", ""),
+            "refType": "recording",
+            "status": r.get("status", "captured"),
+        })
+
+    # Version bumps (from action versions)
+    for a in registry.list():
+        for v in a.versions:
+            events.append({
+                "type": "version",
+                "ts": v.releasedAt.isoformat() + "Z",
+                "title": f"{a.name} v{v.version}",
+                "description": v.changelog,
+                "refId": a.id,
+                "refType": "action",
+                "status": v.status,
+            })
+
+    # Sort by ts desc, take 12.
+    events.sort(key=lambda e: e["ts"], reverse=True)
+    return {"events": events[:12], "total": len(events)}
 
 
 # Feature routers

@@ -60,7 +60,9 @@ export function GlobalSearch() {
   const totalHits =
     (results?.actions.length ?? 0) +
     (results?.connectors.length ?? 0) +
-    (results?.executions.length ?? 0);
+    (results?.executions.length ?? 0) +
+    (results?.recordings.length ?? 0) +
+    (results?.repairs.length ?? 0);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -191,6 +193,66 @@ export function GlobalSearch() {
                           }
                         >
                           {e.status}
+                        </Badge>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
+                {results!.recordings.length > 0 && (
+                  <CommandGroup heading="Recordings">
+                    {results!.recordings.map((r) => (
+                      <CommandItem
+                        key={r.id}
+                        value={`recording-${r.id}`}
+                        onSelect={() => {
+                          useStudio.setState({ view: "recorder" });
+                          setOpen(false);
+                          setQuery("");
+                        }}
+                        className="gap-2"
+                      >
+                        <Icon name="recorder" size={14} className="text-chart-5 shrink-0" aria-hidden />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs text-foreground truncate">{r.name}</p>
+                          <p className="er-caption text-muted-foreground truncate">
+                            {r.status} · {r.steps} steps
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="er-pill-neutral text-[10px] capitalize">{r.status}</Badge>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
+                {results!.repairs.length > 0 && (
+                  <CommandGroup heading="Repairs">
+                    {results!.repairs.map((r) => (
+                      <CommandItem
+                        key={r.id}
+                        value={`repair-${r.id}`}
+                        onSelect={() => {
+                          useStudio.setState({ view: "monitoring" });
+                          setOpen(false);
+                          setQuery("");
+                        }}
+                        className="gap-2"
+                      >
+                        <Icon name="wrench" size={14} className="text-chart-4 shrink-0" aria-hidden />
+                        <div className="min-w-0 flex-1">
+                          <p className="font-mono text-xs text-foreground truncate">{r.candidateSelector}</p>
+                          <p className="er-caption text-muted-foreground truncate">
+                            {r.status} · {Math.round(r.confidence * 100)}% · {r.reason.slice(0, 50)}
+                          </p>
+                        </div>
+                        <Badge
+                          className={
+                            r.status === "approved" || r.status === "auto_applied"
+                              ? "er-pill-success text-[10px]"
+                              : r.status === "rejected"
+                                ? "er-pill-danger text-[10px]"
+                                : "er-pill-warn text-[10px]"
+                          }
+                        >
+                          {r.status}
                         </Badge>
                       </CommandItem>
                     ))}
