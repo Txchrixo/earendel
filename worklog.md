@@ -749,3 +749,120 @@ Stage Summary:
 - Cards now rely solely on the global `@apply border-border` outline from the Card primitive — no raised shadows, no left-border bars, no gradient text.
 - Lint status: clean (0 errors). The pre-existing tsc errors around Icon `size` prop type (only allows 24|16|20|32) are unrelated to this sweep and present in files we didn't touch.
 - Remaining issues: none within scope. spot-illustration.tsx retains its inline SVG `<linearGradient>` definitions which is intentional per the task spec.
+
+---
+Task ID: FINAL-AUDIT
+Agent: orchestrator
+Task: Honest production-readiness audit — what's done, what's broken, what's missing.
+
+## What's actually working (verified)
+
+### Frontend
+- Landing page (hero, pipeline, features, research, CTA) — clean design.md-compliant
+- Auth dialog (sign in / sign up / continue as demo) — works, talks to backend
+- Studio app (10 views: dashboard, connectors, connector-detail, recorder, recording-detail,
+  actions, action-detail, executions, monitoring, publishing, playground)
+- Global search (⌘K) across actions/connectors/executions/recordings/repairs
+- Activity feed with filter
+- Responsive shell (hamburger menu on mobile, responsive grids)
+- Design: stripped all AI-generated patterns (gradients, bar-accents, raised cards)
+
+### Backend
+- FastAPI modular monolith (core domain + 5 adapters + 7 feature modules)
+- 6 seeded connectors, 6 typed actions, 10 executions, 2 repairs, canaries
+- Real LLM-backed recording compilation (z-ai CLI, ~4s, with fallback)
+- Real LLM-backed repair proposals (z-ai CLI, ~2s, with fallback)
+- MCP registry endpoint, CSV export, timeseries, search, activity feed
+- Auth: register/login (document DB, SHA-256 — DEMO GRADE)
+- /healthz + /readyz endpoints
+- Runtime reliability: 100% across 30 test runs
+
+## What's BROKEN or INCOMPLETE (honest assessment)
+
+### 1. Auth is demo-grade — NOT production-ready
+- Passwords hashed with SHA-256 (should be bcrypt/argon2)
+- No JWT/session tokens (returns a fake "demo-token-{id}")
+- No session middleware (any request is authenticated)
+- No password reset, email verification, or rate limiting
+- Users stored in the same SQLite document DB as everything else
+- **Fix needed**: NextAuth.js with credential provider + bcrypt + JWT + session middleware
+
+### 2. Adapters are deterministic stubs — NOT real automation
+- The API adapter doesn't make real HTTP calls — it returns hardcoded JSON
+- The internal_route adapter doesn't discover real endpoints
+- The browser adapter doesn't use Playwright — it simulates steps with sleep()
+- The vision adapter doesn't parse screenshots — it returns canned data
+- The human adapter is a placeholder
+- **Fix needed**: Real Playwright integration for browser adapter, real httpx calls for API adapter,
+  real OmniParser/screenshot parsing for vision adapter
+
+### 3. The orchestrator doesn't actually retry within an adapter
+- If the browser adapter "fails" (20% deterministic), it falls through to vision
+- But there's no retry WITHIN the browser adapter (e.g., retry the selector 3x before giving up)
+- **Fix needed**: Add retry logic within each adapter (retry count + backoff)
+
+### 4. No real MCP server
+- The /publishing/registry endpoint returns a JSON manifest
+- But there's no actual MCP server process that agents connect to
+- The "MCP tool" is a definition, not a running server
+- **Fix needed**: A real MCP server (stdio or SSE) that exposes the actions
+
+### 5. No real recording
+- The recorder simulates steps with setInterval — it doesn't capture real DOM/network
+- No Chrome extension, no CDP, no HAR capture, no real Playwright recorder
+- **Fix needed**: Real browser-based recording (Chrome extension or CDP)
+
+### 6. Code quality issues
+- executions-sections.tsx is ~850 lines (should be split)
+- publishing-view.tsx is ~700 lines (should be split)
+- action-detail-sections.tsx is ~1000+ lines (should be split)
+- Some files have inconsistent patterns (some use cn(), some don't)
+- **Fix needed**: Split large files, standardize patterns
+
+### 7. No tests
+- Zero test files in the project
+- No unit tests, no integration tests, no e2e tests
+- **Fix needed**: pytest for backend, jest/vitest for frontend, playwright e2e
+
+### 8. No CI/CD
+- No GitHub Actions workflow
+- No automated testing or deployment
+- **Fix needed**: CI pipeline (lint + test + build)
+
+### 9. No secrets management
+- The GitHub token is hardcoded in the git remote URL
+- The z-ai SDK key (if any) is not in env vars
+- **Fix needed**: .env files, secret manager, never commit tokens
+
+### 10. No real database
+- SQLite document store (JSON blobs in a single table)
+- No schema migrations, no indexes, no relations
+- **Fix needed**: PostgreSQL with proper schema, or at least SQLite with Prisma
+
+### 11. Missing production features
+- No rate limiting on API endpoints
+- No CORS configuration for production domains
+- No logging/monitoring (no Sentry, no Datadog)
+- No caching (Redis)
+- No queue (Celery/RQ for async canary runs)
+- No WebSocket for real-time execution streaming (the socket.io mini-service was never built)
+
+## Priority recommendations (ranked)
+
+1. **Real auth**: NextAuth.js + bcrypt + JWT + session middleware. Current auth is a toy.
+2. **Real browser adapter**: Integrate Playwright for actual browser automation. Without this, the product is a mockup.
+3. **Split large files**: executions-sections.tsx, publishing-view.tsx, action-detail-sections.tsx are unmaintainable.
+4. **Real MCP server**: Build an actual MCP server process that agents can connect to.
+5. **Tests**: At minimum, unit tests for the core domain + adapter integration tests.
+6. **Real recording**: Chrome extension or CDP-based recording (not simulated).
+7. **CI/CD**: GitHub Actions for lint + test + build.
+8. **PostgreSQL**: Move from SQLite document store to a real relational DB.
+9. **Rate limiting + CORS**: Production API hardening.
+10. **Monitoring**: Sentry for errors, structured logging, metrics.
+
+## Bottom line
+
+The project is a **functional prototype** that demonstrates the Earendel thesis (typed actions,
+multi-adapter execution, repair loops, MCP publishing) but is **NOT production-ready**.
+The auth is demo-grade, the adapters are stubs, there are no tests, and the code has
+maintainability issues. To ship this to real users, items 1-4 above are non-negotiable.
