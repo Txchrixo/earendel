@@ -30,6 +30,7 @@ import {
   TestsCanaryTab,
   VersionsTab,
   ExecutionsTab,
+  DependenciesTab,
 } from "./action-detail-sections";
 
 type PublishTarget = "mcp" | "rest" | "sdk" | "webhook";
@@ -274,6 +275,9 @@ export function ActionDetailView() {
               <TabsTrigger value="executions">
                 <Icon name="executions" size={14} aria-hidden /> Executions
               </TabsTrigger>
+              <TabsTrigger value="dependencies">
+                <Icon name="connectors" size={14} aria-hidden /> Dependencies
+              </TabsTrigger>
             </TabsList>
             <TabsContent value="contract">
               <ContractTab action={data} />
@@ -289,6 +293,9 @@ export function ActionDetailView() {
             </TabsContent>
             <TabsContent value="executions">
               <ExecutionsTab actionId={data.id} />
+            </TabsContent>
+            <TabsContent value="dependencies">
+              <DependenciesTab action={data} />
             </TabsContent>
           </Tabs>
         </>

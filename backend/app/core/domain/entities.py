@@ -84,6 +84,8 @@ class ActionVersion(BaseModel):
     adapter: AdapterType
     successRate: float
     status: Literal["stable", "latest", "deprecated", "rollback"]
+    # Optional contract snapshot for version-diff (inputs/outputs at release time).
+    contractSnapshot: ActionContract | None = None
 
 
 class CanaryAssertion(BaseModel):

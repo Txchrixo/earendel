@@ -36,13 +36,12 @@ const ADAPTER_LABELS: Record<AdapterType, string> = {
   human: "Human review",
 };
 
-interface BreakdownSlice {
-  adapter: AdapterType;
-  count: number;
-  label: string;
-}
+const ACTION_PALETTE = ["#6B5876", "#7A8548", "#C9A66B", "#8B6F5A", "#A5A19B", "#B5454A", "#5A8B7A", "#7A5A8B"];
+
+type Slice = { key: string; count: number; label: string; color: string };
 
 export function FailureBreakdown() {
+  const [mode, setMode] = React.useState<"adapter" | "action">("adapter");
   const { data: executions, loading } = useApi<Execution[]>(
     () => api.listExecutions(),
     [],
@@ -52,16 +51,20 @@ export function FailureBreakdown() {
     (e) => e.status === "failed" || e.status === "degraded" || e.status === "human_review",
   );
 
-  // Count by the adapter that ultimately handled the (failed) execution.
-  const counts = new Map<AdapterType, number>();
+  // Build slices based on the selected mode.
+  const counts = new Map<string, number>();
   for (const e of failed) {
-    counts.set(e.adapter, (counts.get(e.adapter) ?? 0) + 1);
+    const key = mode === "adapter" ? e.adapter : e.actionName;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
   }
-  const slices: BreakdownSlice[] = Array.from(counts.entries())
-    .map(([adapter, count]) => ({
-      adapter,
+  const slices: Slice[] = Array.from(counts.entries())
+    .map(([key, count], i) => ({
+      key,
       count,
-      label: ADAPTER_LABELS[adapter],
+      label: mode === "adapter" ? ADAPTER_LABELS[key as AdapterType] ?? key : key,
+      color: mode === "adapter"
+        ? ADAPTER_COLORS[key as AdapterType] ?? "#A5A19B"
+        : ACTION_PALETTE[i % ACTION_PALETTE.length],
     }))
     .sort((a, b) => b.count - a.count);
 
@@ -74,8 +77,36 @@ export function FailureBreakdown() {
           <Icon name="graph" size={14} aria-hidden />
           <h3 className="er-h3">Failure breakdown</h3>
         </div>
+        <div className="flex items-center gap-1 rounded-md border border-border p-0.5">
+          <button
+            type="button"
+            onClick={() => setMode("adapter")}
+            className={cn(
+              "rounded px-2 py-0.5 er-caption transition-colors",
+              mode === "adapter"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            by adapter
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("action")}
+            className={cn(
+              "rounded px-2 py-0.5 er-caption transition-colors",
+              mode === "action"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            by action
+          </button>
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
         <span className="er-caption text-muted-foreground">
-          {total} failed/degraded · by adapter
+          {total} failed/degraded · {mode === "adapter" ? "by adapter" : "by action"}
         </span>
       </div>
 
@@ -118,7 +149,7 @@ export function FailureBreakdown() {
                   strokeWidth={2}
                 >
                   {slices.map((s) => (
-                    <Cell key={s.adapter} fill={ADAPTER_COLORS[s.adapter]} />
+                    <Cell key={s.key} fill={s.color} />
                   ))}
                 </Pie>
                 <Tooltip
@@ -130,7 +161,7 @@ export function FailureBreakdown() {
                   }}
                   formatter={(v: number, _name, props) => [
                     `${v} (${Math.round((v / total) * 100)}%)`,
-                    ADAPTER_LABELS[(props.payload as BreakdownSlice).adapter],
+                    (props.payload as Slice).label,
                   ]}
                 />
               </PieChart>
@@ -147,13 +178,13 @@ export function FailureBreakdown() {
             {slices.map((s) => {
               const pct = Math.round((s.count / total) * 100);
               return (
-                <div key={s.adapter} className="flex items-center gap-2.5">
+                <div key={s.key} className="flex items-center gap-2.5">
                   <span
                     className="size-3 rounded-sm shrink-0"
-                    style={{ background: ADAPTER_COLORS[s.adapter] }}
+                    style={{ background: s.color }}
                     aria-hidden
                   />
-                  <span className="text-sm text-foreground flex-1">{s.label}</span>
+                  <span className="text-sm text-foreground flex-1 truncate">{s.label}</span>
                   <span className="text-sm font-mono tabular-nums text-muted-foreground">
                     {s.count}
                   </span>

@@ -495,6 +495,7 @@ function HealthPill({
 }
 
 export function SystemHealthStrip() {
+  const [expanded, setExpanded] = React.useState(false);
   const { data: liveness } = useApi<{ status: string }>(
     () => api.raw("/api/v1/healthz"),
     [],
@@ -511,24 +512,46 @@ export function SystemHealthStrip() {
   const regOk = readiness?.checks?.action_registry === "ok";
 
   return (
-    <Card className="er-card-raised flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2.5">
-      <div className="flex items-center gap-2">
-        <Icon name="server" size={14} className="text-accent" aria-hidden />
-        <span className="er-caption font-medium text-foreground uppercase tracking-wide">
-          System health
+    <Card className="er-card-raised gap-0 px-4 py-2.5">
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        className="flex w-full flex-wrap items-center gap-x-6 gap-y-2 text-left"
+        aria-expanded={expanded}
+      >
+        <div className="flex items-center gap-2">
+          <Icon name="server" size={14} className="text-accent" aria-hidden />
+          <span className="er-caption font-medium text-foreground uppercase tracking-wide">
+            System health
+          </span>
+        </div>
+        <HealthPill label="liveness" ok={liveOk} />
+        <HealthPill label="readiness" ok={readyOk} />
+        <HealthPill label="database" ok={dbOk} />
+        <HealthPill
+          label="registry"
+          ok={regOk}
+          detail={readiness?.counts ? `${readiness.counts.actions} actions` : undefined}
+        />
+        <span className="ml-auto er-caption text-muted-foreground/60 flex items-center gap-1">
+          refreshed every 30s
+          <Icon
+            name={expanded ? "chevronUp" : "chevronDown"}
+            size={12}
+            aria-hidden
+          />
         </span>
-      </div>
-      <HealthPill label="liveness" ok={liveOk} />
-      <HealthPill label="readiness" ok={readyOk} />
-      <HealthPill label="database" ok={dbOk} />
-      <HealthPill
-        label="registry"
-        ok={regOk}
-        detail={readiness?.counts ? `${readiness.counts.actions} actions` : undefined}
-      />
-      <span className="ml-auto er-caption text-muted-foreground/60">
-        refreshed every 30s
-      </span>
+      </button>
+      {expanded && readiness && (
+        <div className="mt-2 border-t border-border pt-2">
+          <p className="er-caption text-muted-foreground uppercase tracking-wide mb-1">
+            /readyz response
+          </p>
+          <pre className="er-scroll max-h-40 overflow-auto rounded-md bg-background/60 p-2 font-mono text-xs text-foreground">
+            {JSON.stringify({ liveness, readiness }, null, 2)}
+          </pre>
+        </div>
+      )}
     </Card>
   );
 }

@@ -19,6 +19,7 @@ import type {
   AdapterType,
   Execution,
   ActionVersion,
+  Connector,
 } from "@/lib/earendel/types";
 import {
   StatusDot,
@@ -714,7 +715,104 @@ function VersionDiffCard({
           </span>
         </div>
       </div>
+
+      {/* Contract diff (inputs/outputs) */}
+      {a.contractSnapshot && b.contractSnapshot && (
+        <ContractDiff a={a.contractSnapshot} b={b.contractSnapshot} />
+      )}
     </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* ContractDiff — inputs/outputs field diff between two contracts      */
+/* ------------------------------------------------------------------ */
+
+function fieldKey(f: { name: string }): string {
+  return f.name;
+}
+
+function ContractDiff({
+  a,
+  b,
+}: {
+  a: import("@/lib/earendel/types").ActionContract;
+  b: import("@/lib/earendel/types").ActionContract;
+}) {
+  const aInputs = new Map(a.inputs.map((f) => [fieldKey(f), f]));
+  const bInputs = new Map(b.inputs.map((f) => [fieldKey(f), f]));
+  const aOutputs = new Map(a.outputs.map((f) => [fieldKey(f), f]));
+  const bOutputs = new Map(b.outputs.map((f) => [fieldKey(f), f]));
+
+  const inputAdded = b.inputs.filter((f) => !aInputs.has(fieldKey(f)));
+  const inputRemoved = a.inputs.filter((f) => !bInputs.has(fieldKey(f)));
+  const outputAdded = b.outputs.filter((f) => !aOutputs.has(fieldKey(f)));
+  const outputRemoved = a.outputs.filter((f) => !bOutputs.has(fieldKey(f)));
+
+  const hasChanges =
+    inputAdded.length > 0 ||
+    inputRemoved.length > 0 ||
+    outputAdded.length > 0 ||
+    outputRemoved.length > 0;
+
+  if (!hasChanges) return null;
+
+  return (
+    <div className="w-full rounded-md border border-border bg-background/40 p-3">
+      <p className="er-caption text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+        <Icon name="diff" size={11} aria-hidden /> Contract diff
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {/* Inputs diff */}
+        <div>
+          <p className="er-caption text-muted-foreground mb-1">Inputs</p>
+          {inputAdded.length === 0 && inputRemoved.length === 0 ? (
+            <p className="er-caption text-muted-foreground/60">unchanged</p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {inputAdded.map((f) => (
+                <div key={`+i${f.name}`} className="flex items-center gap-1.5 er-pill-success rounded px-2 py-0.5 text-xs">
+                  <span className="font-mono font-bold">+</span>
+                  <code className="font-mono">{f.name}</code>
+                  <span className="text-muted-foreground">({f.type})</span>
+                </div>
+              ))}
+              {inputRemoved.map((f) => (
+                <div key={`-i${f.name}`} className="flex items-center gap-1.5 er-pill-danger rounded px-2 py-0.5 text-xs">
+                  <span className="font-mono font-bold">−</span>
+                  <code className="font-mono line-through">{f.name}</code>
+                  <span className="text-muted-foreground">({f.type})</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {/* Outputs diff */}
+        <div>
+          <p className="er-caption text-muted-foreground mb-1">Outputs</p>
+          {outputAdded.length === 0 && outputRemoved.length === 0 ? (
+            <p className="er-caption text-muted-foreground/60">unchanged</p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {outputAdded.map((f) => (
+                <div key={`+o${f.name}`} className="flex items-center gap-1.5 er-pill-success rounded px-2 py-0.5 text-xs">
+                  <span className="font-mono font-bold">+</span>
+                  <code className="font-mono">{f.name}</code>
+                  <span className="text-muted-foreground">({f.type})</span>
+                </div>
+              ))}
+              {outputRemoved.map((f) => (
+                <div key={`-o${f.name}`} className="flex items-center gap-1.5 er-pill-danger rounded px-2 py-0.5 text-xs">
+                  <span className="font-mono font-bold">−</span>
+                  <code className="font-mono line-through">{f.name}</code>
+                  <span className="text-muted-foreground">({f.type})</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -787,5 +885,172 @@ export function ExecutionsTab({ actionId }: { actionId: string }) {
         ))}
       </ul>
     </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Dependencies tab — connector, credentials, adapters, permissions    */
+/* ------------------------------------------------------------------ */
+
+export function DependenciesTab({ action }: { action: TypedAction }) {
+  const openConnector = useStudio((s) => s.openConnector);
+  const setView = useStudio((s) => s.setView);
+  const { data: connector } = useApi<Connector>(
+    () => api.getConnector(action.connectorId),
+    [action.connectorId],
+  );
+
+  const adapterChain = action.executionMethods;
+  const fallbackDepth = adapterChain.length;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2 }}
+      className="flex flex-col gap-4"
+    >
+      {/* Connector dependency */}
+      <Card className="er-card-raised gap-3 p-5">
+        <div className="flex items-center gap-2">
+          <Icon name="connectors" size={14} aria-hidden />
+          <h4 className="text-sm font-medium">Connector</h4>
+        </div>
+        {connector ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <span
+              className="grid size-9 place-items-center rounded-md"
+              style={{
+                background: "linear-gradient(135deg, rgba(107,88,118,0.35), rgba(122,133,72,0.18))",
+                color: "#E8E0D4",
+              }}
+            >
+              <Icon name="globe" size={16} aria-hidden />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-foreground">{connector.name}</p>
+              <p className="er-caption text-muted-foreground font-mono">{connector.targetDomain}</p>
+            </div>
+            <Badge className="er-pill-neutral capitalize">{connector.authMethod}</Badge>
+            <RiskBadge level={connector.riskLevel} />
+            <Button size="sm" variant="outline" onClick={() => openConnector(connector.id)}>
+              <Icon name="eye" size={12} aria-hidden /> View
+            </Button>
+          </div>
+        ) : (
+          <p className="er-caption text-muted-foreground">Loading connector…</p>
+        )}
+      </Card>
+
+      {/* Credential vault */}
+      {connector && (
+        <Card className="er-card-raised gap-3 p-5">
+          <div className="flex items-center gap-2">
+            <Icon name="lock" size={14} aria-hidden />
+            <h4 className="text-sm font-medium">Credential vault</h4>
+          </div>
+          <div className="rounded-md border border-border bg-background/40 p-3">
+            <div className="flex items-center justify-between">
+              <code className="font-mono text-xs text-muted-foreground">
+                {connector.credentialVaultKey}
+              </code>
+              <Badge className="er-pill-success">
+                <Icon name="shieldCheck" size={10} aria-hidden /> sealed
+              </Badge>
+            </div>
+            <p className="er-caption text-muted-foreground mt-2">
+              Credentials are fetched at runtime through the vault — never embedded in LLM
+              prompts or logs. RBAC scopes this action to{" "}
+              <span className="text-foreground font-medium capitalize">
+                {action.permissions.replace("_", " ")}
+              </span>{" "}
+              operations.
+            </p>
+          </div>
+        </Card>
+      )}
+
+      {/* Adapter chain */}
+      <Card className="er-card-raised gap-3 p-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Icon name="iterations" size={14} aria-hidden />
+            <h4 className="text-sm font-medium">Execution adapters</h4>
+          </div>
+          <span className="er-caption text-muted-foreground">
+            fallback depth {fallbackDepth}
+          </span>
+        </div>
+        <div className="flex flex-col gap-2">
+          {adapterChain.map((adapter, i) => {
+            const isPreferred = adapter === action.preferredAdapter;
+            return (
+              <div
+                key={adapter}
+                className={cn(
+                  "flex items-center gap-3 rounded-md border px-3 py-2",
+                  isPreferred ? "border-accent/40 bg-accent/5" : "border-border bg-secondary/40",
+                )}
+              >
+                <span className="er-caption text-muted-foreground w-6 text-center font-mono">
+                  {i + 1}
+                </span>
+                <AdapterChip adapter={adapter} active={isPreferred} />
+                <span className="text-sm text-muted-foreground flex-1">
+                  {isPreferred ? "Preferred — tried first" : "Fallback — tried if preferred fails"}
+                </span>
+                {isPreferred && (
+                  <Badge className="er-pill-success text-xs">preferred</Badge>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* Permission + risk summary */}
+      <Card className="er-card-raised gap-3 p-5">
+        <div className="flex items-center gap-2">
+          <Icon name="shield" size={14} aria-hidden />
+          <h4 className="text-sm font-medium">Permission & risk</h4>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="rounded-md border border-border bg-background/40 p-3">
+            <p className="er-caption text-muted-foreground uppercase tracking-wide mb-1">
+              Permission scope
+            </p>
+            <p className="text-sm font-medium capitalize text-foreground">
+              {action.permissions.replace("_", " ")}
+            </p>
+            <p className="er-caption text-muted-foreground mt-1">
+              {action.permissions === "read_only"
+                ? "Auto-run enabled — no human approval needed."
+                : action.permissions === "read_write"
+                  ? "Auto-run + log — mutations logged."
+                  : action.permissions === "submit"
+                    ? "Human confirmation required before submit."
+                    : "Strict approval — typed confirmation required."}
+            </p>
+          </div>
+          <div className="rounded-md border border-border bg-background/40 p-3">
+            <p className="er-caption text-muted-foreground uppercase tracking-wide mb-1">
+              Risk level
+            </p>
+            <div className="flex items-center gap-2">
+              <RiskBadge level={action.riskLevel} />
+            </div>
+            <p className="er-caption text-muted-foreground mt-1">
+              {action.riskLevel === "low"
+                ? "Read-only data retrieval — safe to auto-run."
+                : action.riskLevel === "medium"
+                  ? "May mutate state — logged + monitored."
+                  : action.riskLevel === "high"
+                    ? "Consequential — human authorisation required."
+                    : "Destructive — strict typed confirmation."}
+            </p>
+          </div>
+        </div>
+      </Card>
+    </motion.div>
   );
 }

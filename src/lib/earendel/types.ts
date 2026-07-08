@@ -94,6 +94,7 @@ export interface ActionVersion {
   adapter: AdapterType;
   successRate: number;
   status: "stable" | "latest" | "deprecated" | "rollback";
+  contractSnapshot?: ActionContract;
 }
 
 export interface CanaryTest {

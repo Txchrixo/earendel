@@ -167,13 +167,42 @@ def _make_version(version: str, adapter: AdapterType, changelog: str,
     )
 
 
+def _snapshot_contract(contract: ActionContract, drop_outputs: int = 0,
+                       extra_outputs: list | None = None) -> ActionContract:
+    """Build a contract snapshot for a version (simulating evolution).
+
+    drop_outputs: remove that many output fields (older versions had fewer).
+    extra_outputs: additional FieldSchema to add (newer versions added fields).
+    """
+    outs = list(contract.outputs)
+    if drop_outputs > 0:
+        outs = outs[:-drop_outputs] if drop_outputs < len(outs) else []
+    if extra_outputs:
+        outs = outs + list(extra_outputs)
+    return ActionContract(
+        inputs=list(contract.inputs),
+        outputs=outs,
+        preconditions=list(contract.preconditions),
+        postconditions=list(contract.postconditions),
+    )
+
+
 async def _build_action(
     connector, name: str, signature: str, description: str,
     contract: ActionContract, methods: list[AdapterType],
     preferred: AdapterType, status: ActionStatus = ActionStatus.published,
 ) -> TypedAction:
-    """Construct a published TypedAction with versions + canary."""
+    """Construct a published TypedAction with versions + canary.
+
+    Each version carries a contractSnapshot so the version-diff view can show
+    how the inputs/outputs evolved (v1.0.0 had fewer outputs, v1.1.0 added one).
+    """
     action_id = new_id("act")
+    # v1.0.0: initial compile — fewer outputs (drop the last 1-2 fields).
+    v1_contract = _snapshot_contract(contract, drop_outputs=min(2, len(contract.outputs)))
+    # v1.1.0: added retry — added one output field back.
+    v1_1_contract = _snapshot_contract(contract, drop_outputs=min(1, len(contract.outputs)))
+    # v1.2.0: current contract.
     return TypedAction(
         id=action_id, connectorId=connector.id, name=name,
         signature=signature, description=description, category=connector.category,
@@ -181,11 +210,21 @@ async def _build_action(
         riskLevel=connector.riskLevel, executionMethods=methods,
         preferredAdapter=preferred, status=status, version="1.2.0",
         versions=[
-            _make_version("1.0.0", preferred, "initial compile", 0.91),
-            _make_version("1.1.0", preferred, "added retry on timeout", 0.95),
-            ActionVersion(version="1.2.0", releasedAt=datetime.utcnow(),
-                          changelog="selector hardened after repair", adapter=preferred,
-                          successRate=0.98, status="latest"),
+            ActionVersion(
+                version="1.0.0", releasedAt=datetime.utcnow() - timedelta(days=14),
+                changelog="initial compile", adapter=preferred, successRate=0.91,
+                status="stable", contractSnapshot=v1_contract,
+            ),
+            ActionVersion(
+                version="1.1.0", releasedAt=datetime.utcnow() - timedelta(days=7),
+                changelog="added retry on timeout", adapter=preferred, successRate=0.95,
+                status="stable", contractSnapshot=v1_1_contract,
+            ),
+            ActionVersion(
+                version="1.2.0", releasedAt=datetime.utcnow(),
+                changelog="selector hardened after repair", adapter=preferred,
+                successRate=0.98, status="latest", contractSnapshot=contract,
+            ),
         ],
         testsPassed=8, testsTotal=8,
         canary=[_make_canary(action_id, f"{name} canary", True, 0.96)],
