@@ -14,3 +14,4 @@ services.pid
 .idea/
 tsconfig.tsbuildinfo
 skills/
+upload/
