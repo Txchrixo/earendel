@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel previous runs on the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ---- Brique 1: Frontend lint ----
   frontend-lint:
@@ -36,7 +41,7 @@ jobs:
 
   # ---- Brique 2: Frontend tests (vitest) ----
   frontend-tests:
-    name: Frontend Tests
+    name: Frontend Tests (69)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -66,7 +71,7 @@ jobs:
 
   # ---- Brique 3: Backend tests (pytest) ----
   backend-tests:
-    name: Backend Tests
+    name: Backend Tests (123)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -97,7 +102,7 @@ jobs:
 
   # ---- Brique 4: E2E tests (playwright) ----
   e2e-tests:
-    name: E2E Tests
+    name: E2E Tests (3)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
