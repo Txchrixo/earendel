@@ -153,3 +153,40 @@ jobs:
         run: bunx playwright test --reporter=list
         env:
           PLAYWRIGHT_BASE_URL: "http://localhost:3000"
+
+  # ---- Brique 5: Build check ----
+  build:
+    name: Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: bun run db:generate
+
+      - name: Build Next.js
+        run: bun run build
+        env:
+          DATABASE_URL: "file:./ci-build.db"
+          NEXTAUTH_URL: "http://localhost:3000"
+          NEXTAUTH_SECRET: "ci-build-secret"
+          BACKEND_SECRET: "ci-build-secret"
+          GOOGLE_CLIENT_ID: "test"
+          GOOGLE_CLIENT_SECRET: "test"
