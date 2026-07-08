@@ -12,6 +12,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { Icon } from "./icon";
 import { RiskBadge } from "./primitives";
 import type { RiskLevel, PermissionScope } from "@/lib/earendel/types";
@@ -97,13 +98,12 @@ export function RiskGateDialog({
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 font-heading text-xl">
               <span
-                className="grid size-8 place-items-center rounded-md"
-                style={{
-                  background: isDestructive
-                    ? "linear-gradient(135deg, rgba(181,69,74,0.30), rgba(181,69,74,0.10))"
-                    : "linear-gradient(135deg, rgba(201,166,107,0.30), rgba(201,166,107,0.10))",
-                  color: isDestructive ? "#D88A8D" : "#D9B97A",
-                }}
+                className={cn(
+                  "grid size-8 place-items-center rounded-md",
+                  isDestructive
+                    ? "bg-destructive/15 text-destructive"
+                    : "bg-secondary text-muted-foreground",
+                )}
               >
                 <Icon name={isDestructive ? "alertFill" : "shield"} size={18} aria-hidden />
               </span>

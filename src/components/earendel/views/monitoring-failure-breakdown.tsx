@@ -71,7 +71,7 @@ export function FailureBreakdown() {
   const total = slices.reduce((sum, s) => sum + s.count, 0);
 
   return (
-    <Card className="er-card-raised gap-3 p-5">
+    <Card className="gap-3 p-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Icon name="graph" size={14} aria-hidden />
@@ -117,11 +117,7 @@ export function FailureBreakdown() {
       ) : total === 0 ? (
         <div className="flex h-48 flex-col items-center justify-center gap-2 text-center">
           <span
-            className="grid size-12 place-items-center rounded-full"
-            style={{
-              background: "linear-gradient(135deg, rgba(122,133,72,0.25), rgba(122,133,72,0.08))",
-              color: "#7A8548",
-            }}
+            className="grid size-12 place-items-center rounded-full bg-accent/15 text-accent"
           >
             <Icon name="checkCircle" size={24} aria-hidden />
           </span>

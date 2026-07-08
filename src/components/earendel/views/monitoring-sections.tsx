@@ -172,12 +172,7 @@ export function RepairApprovalDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 font-heading text-xl">
             <span
-              className="grid size-8 place-items-center rounded-md"
-              style={{
-                background:
-                  "linear-gradient(135deg, rgba(201,166,107,0.30), rgba(122,133,72,0.12))",
-                color: "#D9B97A",
-              }}
+              className="grid size-8 place-items-center rounded-md bg-secondary text-muted-foreground"
             >
               <Icon name="wrench" size={16} aria-hidden />
             </span>

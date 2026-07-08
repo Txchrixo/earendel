@@ -281,7 +281,7 @@ function RepairCard({
   };
   return (
     <motion.div layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-      <Card className="er-card-raised gap-3 p-4">
+      <Card className="gap-3 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -469,7 +469,7 @@ function ReliabilityTrend() {
   );
   const chartData = series.length > 0 ? series : fallback;
   return (
-    <Card className="er-card-raised gap-2 p-4">
+    <Card className="gap-2 p-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Icon name="graph" size={14} aria-hidden />

@@ -117,11 +117,7 @@ export function RecordingDetailView() {
             <Icon name="chevronLeft" size={18} aria-hidden />
           </Button>
           <span
-            className="grid size-12 place-items-center rounded-md"
-            style={{
-              background: "linear-gradient(135deg, rgba(107,88,118,0.40), rgba(122,133,72,0.18))",
-              color: "#E8E0D4",
-            }}
+            className="grid size-12 place-items-center rounded-md bg-primary text-primary-foreground"
           >
             <Icon name="recorder" size={24} aria-hidden />
           </span>
@@ -162,18 +158,14 @@ export function RecordingDetailView() {
         title="Captured steps"
         subtitle="The recorded workflow — what Earendel will compile into a typed action"
       />
-      <Card className="er-card-raised overflow-hidden p-0">
+      <Card className="overflow-hidden p-0">
         <ol className="divide-y divide-border">
           {recording.steps.map((step, i) => {
             const icon = STEP_ICON[step.type] ?? "dot";
             return (
-              <li key={i} className="flex items-start gap-3 px-4 py-3 hover:bg-secondary/30 er-lift">
+              <li key={i} className="flex items-start gap-3 px-4 py-3 hover:bg-secondary/30">
                 <span
-                  className="grid size-7 place-items-center rounded-md shrink-0 font-mono text-xs font-bold"
-                  style={{
-                    background: "linear-gradient(135deg, rgba(107,88,118,0.30), rgba(122,133,72,0.12))",
-                    color: "#E8E0D4",
-                  }}
+                  className="grid size-7 place-items-center rounded-md shrink-0 bg-secondary text-muted-foreground font-mono text-xs font-bold"
                 >
                   {step.index + 1}
                 </span>
@@ -214,14 +206,10 @@ export function RecordingDetailView() {
             title="Connector"
             subtitle="The authorised bridge this recording was captured against"
           />
-          <Card className="er-card-raised gap-3 p-5">
+          <Card className="gap-3 p-5">
             <div className="flex flex-wrap items-center gap-3">
               <span
-                className="grid size-9 place-items-center rounded-md"
-                style={{
-                  background: "linear-gradient(135deg, rgba(107,88,118,0.35), rgba(122,133,72,0.18))",
-                  color: "#E8E0D4",
-                }}
+                className="grid size-9 place-items-center rounded-md bg-primary text-primary-foreground"
               >
                 <Icon name="globe" size={16} aria-hidden />
               </span>
@@ -242,7 +230,7 @@ export function RecordingDetailView() {
 
 function SignalTile({ icon, label, value }: { icon: ErIconName; label: string; value: number | string }) {
   return (
-    <Card className="er-card-raised p-3 text-center">
+    <Card className="p-3 text-center">
       <Icon name={icon} size={16} className="text-accent mx-auto mb-1" aria-hidden />
       <p className="font-heading text-xl leading-none tabular-nums">{value}</p>
       <p className="er-caption text-muted-foreground mt-0.5">{label}</p>

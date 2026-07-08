@@ -3,7 +3,7 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Earendel design tokens — from design.md (Fontpair Playground, dark warm palette) */
+/* Earendel design tokens — strict design.md palette (6 colors only) */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -47,16 +47,16 @@
 
 :root {
   --radius: 0.5rem;
-  /* Earendel dark warm palette — single source of truth */
+  /* Strict design.md palette */
   --background: #1F1A17;
   --foreground: #E8E0D4;
-  --card: #25201C;
+  --card: #1F1A17;            /* design.md: card surface = background */
   --card-foreground: #E8E0D4;
-  --popover: #25201C;
+  --popover: #1F1A17;
   --popover-foreground: #E8E0D4;
   --primary: #6B5876;
   --primary-foreground: #1F1A17;
-  --secondary: #2C2722;
+  --secondary: #2C2722;       /* subtle surface variation for inputs/secondary */
   --secondary-foreground: #E8E0D4;
   --muted: #2C2722;
   --muted-foreground: #A5A19B;
@@ -95,7 +95,6 @@
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-body);
-    font-feature-settings: "ss01", "cv01";
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
@@ -103,10 +102,10 @@
     font-family: var(--font-heading);
     letter-spacing: -0.01em;
   }
-  /* Custom scrollbar for long lists */
-  .er-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+  /* Custom scrollbar */
+  .er-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
   .er-scroll::-webkit-scrollbar-track { background: transparent; }
-  .er-scroll::-webkit-scrollbar-thumb { background: #42403D; border-radius: 4px; }
+  .er-scroll::-webkit-scrollbar-thumb { background: #42403D; border-radius: 3px; }
   .er-scroll::-webkit-scrollbar-thumb:hover { background: #5A564F; }
 }
 
@@ -118,147 +117,16 @@
 .er-body { font-size: 16px; line-height: 1.55; font-weight: 400; }
 .er-caption { font-size: 13px; line-height: 1.4; font-weight: 400; }
 
-/* Subtle grain/texture for surfaces */
-.er-surface {
-  background: linear-gradient(180deg, rgba(255,255,255,0.015), rgba(0,0,0,0.06));
-}
-.er-stripe {
-  background-image: repeating-linear-gradient(
-    -45deg,
-    transparent, transparent 8px,
-    rgba(232,224,212,0.02) 8px, rgba(232,224,212,0.02) 9px
-  );
-}
+/* Status pills — solid palette colors at low opacity, no gradients */
+.er-pill-success { background: rgba(122,133,72,0.15); color: #7A8548; }
+.er-pill-warn    { background: rgba(201,166,107,0.15); color: #C9A66B; }
+.er-pill-danger  { background: rgba(181,69,74,0.15); color: #B5454A; }
+.er-pill-neutral { background: rgba(165,161,155,0.12); color: #A5A19B; }
+.er-pill-primary { background: rgba(107,88,118,0.20); color: #6B5876; }
 
+/* Pulse for live indicators */
 @keyframes er-pulse-soft {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
+  50% { opacity: 0.5; }
 }
 .er-pulse { animation: er-pulse-soft 2s ease-in-out infinite; }
-
-@keyframes er-flow {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
-}
-.er-flow::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(122,133,72,0.25), transparent);
-  animation: er-flow 1.6s linear infinite;
-}
-
-/* ============================================================ */
-/* Premium depth system — added in continuous-improvement round */
-/* ============================================================ */
-
-/* Layered card with a soft top sheen + hairline border + subtle outer glow.
-   Use on primary surfaces to escape the "flat dark theme" feel. */
-.er-card-raised {
-  background:
-    linear-gradient(180deg, rgba(232,224,212,0.025) 0%, rgba(31,26,23,0) 60%),
-    var(--card);
-  box-shadow:
-    0 1px 0 0 rgba(232,224,212,0.04) inset,
-    0 0 0 1px var(--border),
-    0 12px 32px -18px rgba(0,0,0,0.7);
-}
-.er-card-raised:hover {
-  box-shadow:
-    0 1px 0 0 rgba(232,224,212,0.06) inset,
-    0 0 0 1px #5A564F,
-    0 18px 40px -20px rgba(0,0,0,0.85);
-}
-
-/* Hover lift for interactive cards (action cards, connector cards, execution rows) */
-.er-lift {
-  transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1),
-              box-shadow 200ms cubic-bezier(0.2, 0.7, 0.2, 1),
-              border-color 200ms ease;
-}
-.er-lift:hover {
-  transform: translateY(-2px);
-  border-color: #5A564F;
-}
-
-/* Accent left-bar for active/selected rows */
-.er-bar-accent {
-  position: relative;
-}
-.er-bar-accent::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 3px;
-  background: linear-gradient(180deg, var(--accent), var(--primary));
-  border-radius: 3px 0 0 3px;
-  opacity: 0.85;
-}
-
-/* Gradient text for hero/feature numerals */
-.er-gradient-text {
-  background: linear-gradient(135deg, #E8E0D4 0%, #C9A66B 45%, #7A8548 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-}
-
-/* Status gradient pills (replaces flat bg) */
-.er-pill-success { background: linear-gradient(135deg, rgba(122,133,72,0.22), rgba(122,133,72,0.08)); border: 1px solid rgba(122,133,72,0.35); color: #B9C77E; }
-.er-pill-warn    { background: linear-gradient(135deg, rgba(201,166,107,0.22), rgba(201,166,107,0.08)); border: 1px solid rgba(201,166,107,0.35); color: #D9B97A; }
-.er-pill-danger  { background: linear-gradient(135deg, rgba(181,69,74,0.22), rgba(181,69,74,0.08)); border: 1px solid rgba(181,69,74,0.40); color: #D88A8D; }
-.er-pill-neutral { background: linear-gradient(135deg, rgba(165,161,155,0.18), rgba(165,161,155,0.06)); border: 1px solid rgba(165,161,155,0.30); color: #A5A19B; }
-.er-pill-primary { background: linear-gradient(135deg, rgba(107,88,118,0.30), rgba(107,88,118,0.10)); border: 1px solid rgba(107,88,118,0.45); color: #B8A6C4; }
-
-/* Section divider with a center label */
-.er-divider {
-  display: flex; align-items: center; gap: 12px;
-  color: var(--muted-foreground);
-}
-.er-divider::before, .er-divider::after {
-  content: ''; flex: 1; height: 1px;
-  background: linear-gradient(90deg, transparent, var(--border), transparent);
-}
-
-/* Dotted background for "secure session" / recorder browser mock */
-.er-grid-bg {
-  background-image: radial-gradient(rgba(232,224,212,0.05) 1px, transparent 1px);
-  background-size: 14px 14px;
-}
-
-/* Glowing accent ring for the active nav item */
-.er-nav-active {
-  background: linear-gradient(90deg, rgba(107,88,118,0.18), rgba(107,88,118,0));
-  box-shadow: inset 2px 0 0 0 var(--accent);
-}
-
-/* Subtle entrance animation utility (used with framer-motion as fallback) */
-@keyframes er-rise {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.er-rise { animation: er-rise 360ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
-
-/* Trace timeline connector line */
-.er-trace-line {
-  background: linear-gradient(180deg, var(--border) 0%, var(--border) 70%, transparent 100%);
-}
-
-/* Focus ring tuned to the palette */
-.er-focus:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
-
-/* Shimmer for loading skeletons (overrides default) */
-.er-shimmer {
-  background: linear-gradient(90deg, #2C2722 0%, #3A352F 50%, #2C2722 100%);
-  background-size: 200% 100%;
-  animation: er-shimmer 1.6s linear infinite;
-}
-@keyframes er-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-

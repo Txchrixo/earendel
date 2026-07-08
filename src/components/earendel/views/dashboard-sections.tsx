@@ -36,7 +36,7 @@ import {
 export function Hero() {
   const setView = useStudio((s) => s.setView);
   return (
-    <Card className="er-surface relative overflow-hidden rounded-xl border-border p-8">
+    <Card className="relative overflow-hidden rounded-xl border-border p-8">
       <div className="relative z-10 max-w-3xl">
         <p className="er-caption mb-3 flex items-center gap-1.5 text-accent">
           <Icon name="telescope" size={12} aria-hidden /> Earendel Studio
@@ -133,15 +133,10 @@ export function PipelineSection() {
       <div className="flex flex-col gap-2 md:flex-row md:items-stretch">
         {PIPELINE.map((step, i) => (
           <React.Fragment key={step.title}>
-            <Card className="er-card-raised er-lift flex-1 gap-2 p-4">
+            <Card className="flex-1 gap-2 p-4">
               <div className="flex items-center gap-2">
                 <span
-                  className="grid size-7 place-items-center rounded-md font-mono text-xs font-bold"
-                  style={{
-                    background: `linear-gradient(135deg, rgba(107,88,118,${0.3 + i * 0.12}), rgba(122,133,72,${0.12 + i * 0.08}))`,
-                    color: "#E8E0D4",
-                    boxShadow: "inset 0 0 0 1px rgba(232,224,212,0.08)",
-                  }}
+                  className="grid size-7 place-items-center rounded-md bg-secondary text-muted-foreground font-mono text-xs font-bold"
                 >
                   {i + 1}
                 </span>
@@ -244,7 +239,7 @@ export function ReliabilitySection() {
         title="Reliability at a glance"
         subtitle="Live canary coverage and repair queue"
       />
-      <Card className="er-card-raised gap-4 p-5">
+      <Card className="gap-4 p-5">
         {error ? (
           <p className="er-caption text-muted-foreground">
             Backend connecting… monitoring data will appear here shortly.
@@ -267,7 +262,7 @@ export function ReliabilitySection() {
                 <span className="er-caption text-muted-foreground flex items-center gap-1">
                   <Icon name="graph" size={12} aria-hidden /> Success 24h
                 </span>
-                <span className="font-heading text-3xl leading-none tabular-nums er-gradient-text">
+                <span className="font-heading text-3xl leading-none tabular-nums text-foreground">
                   {successPct}%
                 </span>
                 <HealthSpark points={sampled.length > 0 ? sampled : [0.82, 0.79, 0.85, 0.88, 0.84, 0.91, data?.successRate24h ?? 0.85]} />
@@ -483,7 +478,6 @@ function HealthPill({
           "size-2 rounded-full",
           ok ? "bg-accent er-pulse" : "bg-destructive",
         )}
-        style={{ boxShadow: "0 0 6px 0 currentColor" }}
         aria-hidden
       />
       <span className="er-caption text-muted-foreground">{label}</span>
@@ -515,7 +509,7 @@ export function SystemHealthStrip() {
   const regOk = readiness?.checks?.action_registry === "ok";
 
   return (
-    <Card className="er-card-raised gap-0 px-4 py-2.5">
+    <Card className="gap-0 px-4 py-2.5">
       <button
         type="button"
         onClick={() => setExpanded((e) => !e)}
@@ -649,7 +643,7 @@ export function ActivityFeedSection() {
           </div>
         }
       />
-      <Card className="er-card-raised overflow-hidden p-0">
+      <Card className="overflow-hidden p-0">
         {error ? (
           <p className="er-caption text-muted-foreground p-4">
             Backend connecting… activity will appear here shortly.
@@ -675,16 +669,12 @@ export function ActivityFeedSection() {
                   key={`${e.type}-${e.refId}-${i}`}
                   className={cn(
                     "flex items-center gap-3 px-4 py-2.5",
-                    clickable && "cursor-pointer hover:bg-secondary/40 er-lift",
+                    clickable && "cursor-pointer hover:bg-secondary/40",
                   )}
                   onClick={() => clickable && handleNavigate(e)}
                 >
                   <span
-                    className="grid size-7 place-items-center rounded-md shrink-0"
-                    style={{
-                      background: "linear-gradient(135deg, rgba(107,88,118,0.30), rgba(122,133,72,0.12))",
-                      color: "#A5A19B",
-                    }}
+                    className="grid size-7 place-items-center rounded-md shrink-0 bg-secondary text-muted-foreground"
                   >
                     <Icon name={icon} size={13} aria-hidden />
                   </span>

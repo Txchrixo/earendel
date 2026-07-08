@@ -718,3 +718,34 @@ Task: Continuous QA + recording-detail view + ⌘K search shortcut + activity fe
    - Dashboard: a "system status" banner at the very top when /readyz is not ready.
    - A settings/profile view (currently the Account button is decorative).
 5. **Cron stability**: services stayed up throughout this round. The cron job should continue to restart via `python3 /home/z/my-project/start_services.py` if health checks fail.
+
+---
+Task ID: DESIGN-SWEEP
+Agent: design-cleanup
+Task: Remove AI-generated design patterns (gradients, bar-accents, raised cards) across all view files.
+
+Work Log:
+- Read worklog.md (first 20 lines) and design.md (full) for strict design system context.
+- Grep'd src/components/earendel/ for all 14 deprecated CSS classes + inline linear-gradient/boxShadow patterns; mapped every occurrence to its file/line.
+- Swept each file:
+  1. action-detail-view.tsx — removed `er-surface` from Header Card.
+  2. publishing-view.tsx — removed `er-card-raised` (x2) and `er-lift`; replaced linear-gradient+boxShadow icon tile with `bg-primary text-primary-foreground`.
+  3. monitoring-view.tsx — removed `er-card-raised` (x2) on RepairQueueItem and ReliabilityTrend Cards.
+  4. executions-sections.tsx — removed `er-card-raised`; replaced linear-gradient icon tile with `bg-secondary text-muted-foreground`.
+  5. monitoring-failure-breakdown.tsx — removed `er-card-raised`; replaced linear-gradient empty-state icon with `bg-accent/15 text-accent`.
+  6. connectors-sections.tsx — removed `er-card-raised er-lift er-bar-accent` triple-class (the worst left-border bar offender); replaced linear-gradient category icon tile with `bg-primary text-primary-foreground`.
+  7. connector-detail-view.tsx — removed `er-card-raised` (x5) and `er-lift` (x2); replaced linear-gradient+boxShadow connector-header tile with `bg-primary text-primary-foreground`.
+  8. recording-detail-view.tsx — removed `er-card-raised` (x4) and `er-lift`; replaced three linear-gradient icon tiles with `bg-primary text-primary-foreground` (recorder, connector) and `bg-secondary text-muted-foreground` (step number tile).
+  9. action-detail-sections.tsx — removed `er-card-raised` (x6); replaced three linear-gradient icon tiles with `bg-secondary text-muted-foreground` (version number) or `bg-primary text-primary-foreground` (diff/connector).
+ 10. dashboard-sections.tsx — removed `er-surface`, `er-card-raised` (x3), `er-lift` (x2), `er-gradient-text`; replaced two linear-gradient icon tiles with `bg-secondary text-muted-foreground`; removed inline `boxShadow: "0 0 6px 0 currentColor"` from status dot; restored gradient-text number to plain `text-foreground`.
+ 11. monitoring-sections.tsx — replaced linear-gradient wrench icon tile with `bg-secondary text-muted-foreground`.
+ 12. risk-gate-dialog.tsx — replaced conditional linear-gradient shield/alert icon tile with `cn(...)`-gated `bg-destructive/15 text-destructive` vs `bg-secondary text-muted-foreground`; added `cn` import from `@/lib/utils`.
+- Verified: `bun run lint` exits 0; final grep for all 14 deprecated classes + `linear-gradient` + `boxShadow` across src/components/earendel/ returns 0 matches (the only remaining SVG `<linearGradient>` element in spot-illustration.tsx is fine and doesn't match the CSS function pattern).
+
+Stage Summary:
+- Files modified: 12 (action-detail-view, publishing-view, monitoring-view, executions-sections, monitoring-failure-breakdown, connectors-sections, connector-detail-view, recording-detail-view, action-detail-sections, dashboard-sections, monitoring-sections, risk-gate-dialog).
+- Patterns removed: 14 `er-card-raised`, 8 `er-lift`, 1 `er-bar-accent`, 1 `er-gradient-text`, 2 `er-surface`, 11 inline `linear-gradient(...)` backgrounds, 3 inline `boxShadow` declarations.
+- All icon tiles now use solid palette classes (`bg-primary text-primary-foreground` for primary actions, `bg-secondary text-muted-foreground` for neutral/step tiles, `bg-accent/15 text-accent` for success emphasis, `bg-destructive/15 text-destructive` for destructive states).
+- Cards now rely solely on the global `@apply border-border` outline from the Card primitive — no raised shadows, no left-border bars, no gradient text.
+- Lint status: clean (0 errors). The pre-existing tsc errors around Icon `size` prop type (only allows 24|16|20|32) are unrelated to this sweep and present in files we didn't touch.
+- Remaining issues: none within scope. spot-illustration.tsx retains its inline SVG `<linearGradient>` definitions which is intentional per the task spec.

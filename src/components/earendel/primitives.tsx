@@ -43,29 +43,17 @@ export function StatCard({
   loading,
 }: StatCardProps) {
   return (
-    <Card className="er-card-raised er-lift gap-0 p-4">
+    <Card className="gap-0 p-4">
       <div className="flex items-start justify-between">
         <span className="er-caption text-muted-foreground uppercase tracking-wide">
           {label}
         </span>
-        <span
-          className="grid size-7 place-items-center rounded-md"
-          style={{
-            background:
-              "linear-gradient(135deg, rgba(107,88,118,0.35), rgba(122,133,72,0.18))",
-            color: "#E8E0D4",
-            boxShadow: "inset 0 0 0 1px rgba(232,224,212,0.08)",
-          }}
-        >
+        <span className="grid size-7 place-items-center rounded-md bg-secondary text-muted-foreground">
           <Icon name={icon} size={16} aria-hidden />
         </span>
       </div>
       <div className="mt-3 font-heading text-3xl leading-none tabular-nums">
-        {loading ? (
-          <span className="er-shimmer inline-block h-7 w-16 rounded" />
-        ) : (
-          value
-        )}
+        {loading ? <span className="er-pulse text-muted-foreground">…</span> : value}
       </div>
       {delta && (
         <div className={cn("er-caption mt-2", trendColor[trend])}>
@@ -89,17 +77,9 @@ interface SectionTitleProps {
 
 export function SectionTitle({ icon, title, subtitle, action }: SectionTitleProps) {
   return (
-    <div className="mb-5 flex items-end justify-between gap-4 border-b border-border/60 pb-3">
+    <div className="mb-4 flex items-end justify-between gap-4">
       <div className="flex items-center gap-3">
-        <span
-          className="grid size-9 place-items-center rounded-md"
-          style={{
-            background:
-              "linear-gradient(135deg, rgba(107,88,118,0.40), rgba(122,133,72,0.18))",
-            color: "#E8E0D4",
-            boxShadow: "inset 0 0 0 1px rgba(232,224,212,0.08)",
-          }}
-        >
+        <span className="grid size-8 place-items-center rounded-md bg-secondary text-muted-foreground">
           <Icon name={icon} size={16} aria-hidden />
         </span>
         <div>
@@ -118,18 +98,6 @@ export function SectionTitle({ icon, title, subtitle, action }: SectionTitleProp
 /* RiskBadge                                                          */
 /* ------------------------------------------------------------------ */
 
-const riskVariants = cva("border-transparent", {
-  variants: {
-    level: {
-      low: "bg-accent text-accent-foreground",
-      medium: "bg-chart-4 text-background",
-      high: "bg-chart-5 text-foreground",
-      critical: "bg-destructive text-white",
-    },
-  },
-  defaultVariants: { level: "low" },
-});
-
 const riskPill: Record<RiskLevel, string> = {
   low: "er-pill-success",
   medium: "er-pill-warn",
@@ -140,16 +108,9 @@ const riskPill: Record<RiskLevel, string> = {
 export function RiskBadge({
   level,
   className,
-}: { level: RiskLevel } & VariantProps<typeof riskVariants> &
-  React.ComponentProps<typeof Badge>) {
+}: { level: RiskLevel } & React.ComponentProps<typeof Badge>) {
   return (
-    <Badge
-      className={cn(
-        "border-transparent font-medium",
-        riskPill[level],
-        className,
-      )}
-    >
+    <Badge className={cn("border-transparent font-medium", riskPill[level], className)}>
       <Icon name="shield" size={12} aria-hidden /> {level}
     </Badge>
   );
@@ -182,12 +143,7 @@ export function StatusDot({ status }: { status: AnyStatus }) {
   return (
     <span className="inline-flex items-center gap-1.5 er-caption text-muted-foreground">
       <span
-        className={cn(
-          "size-2 rounded-full",
-          cfg.color,
-          status === "running" && "er-pulse",
-        )}
-        style={{ boxShadow: "0 0 6px 0 currentColor" }}
+        className={cn("size-2 rounded-full", cfg.color, status === "running" && "er-pulse")}
         aria-hidden
       />
       {cfg.label}
@@ -217,9 +173,9 @@ export function AdapterChip({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 er-caption transition-colors",
+        "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 er-caption",
         active
-          ? "er-pill-primary"
+          ? "border-primary bg-primary/15 text-primary"
           : "border-border bg-secondary text-muted-foreground",
       )}
     >
@@ -238,32 +194,23 @@ interface EmptyStateProps {
   title: string;
   description?: string;
   action?: React.ReactNode;
-  /** Optional spot illustration variant. When set, renders an SVG instead of the icon. */
   spot?: import("./spot-illustration").SpotVariant;
 }
 
 export function EmptyState({ icon, title, description, action, spot }: EmptyStateProps) {
   return (
-    <div className="er-grid-bg flex flex-col items-center justify-center gap-4 rounded-md border border-dashed border-border bg-card/40 p-10 text-center">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border bg-card/50 p-8 text-center">
       {spot ? (
-        <SpotIllustration variant={spot} size={104} className="opacity-90" />
+        <SpotIllustration variant={spot} size={96} className="opacity-80" />
       ) : (
-        <span
-          className="grid size-11 place-items-center rounded-full"
-          style={{
-            background:
-              "linear-gradient(135deg, rgba(107,88,118,0.30), rgba(122,133,72,0.12))",
-            color: "#A5A19B",
-            boxShadow: "inset 0 0 0 1px rgba(232,224,212,0.06)",
-          }}
-        >
+        <span className="grid size-10 place-items-center rounded-md bg-secondary text-muted-foreground">
           <Icon name={icon} size={20} aria-hidden />
         </span>
       )}
       <div>
-        <p className="font-heading text-xl">{title}</p>
+        <p className="font-heading text-lg">{title}</p>
         {description && (
-          <p className="er-caption mt-1.5 text-muted-foreground max-w-sm mx-auto">
+          <p className="er-caption mt-1 text-muted-foreground max-w-sm mx-auto">
             {description}
           </p>
         )}
@@ -295,7 +242,7 @@ export function CodeBlock({
     }
   };
   return (
-    <div className="relative rounded-md border border-border bg-background/60">
+    <div className="relative rounded-md border border-border bg-background">
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
         <span className="er-caption text-muted-foreground uppercase tracking-wide">
           {language ?? "code"}

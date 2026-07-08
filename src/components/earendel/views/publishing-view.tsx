@@ -458,16 +458,11 @@ function RegistryTab() {
   return (
     <div className="flex flex-col gap-5">
       {/* Registry summary */}
-      <Card className="er-card-raised p-5">
+      <Card className="p-5">
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-3">
             <span
-              className="grid size-10 place-items-center rounded-md"
-              style={{
-                background: "linear-gradient(135deg, #6B5876 0%, #7A8548 100%)",
-                color: "#1F1A17",
-                boxShadow: "inset 0 1px 0 0 rgba(232,224,212,0.25)",
-              }}
+              className="grid size-10 place-items-center rounded-md bg-primary text-primary-foreground"
             >
               <Icon name="server" size={20} aria-hidden />
             </span>
@@ -494,12 +489,12 @@ function RegistryTab() {
         <h3 className="er-h3 mb-3 flex items-center gap-2">
           <Icon name="tasklist" size={18} aria-hidden /> Tool index
         </h3>
-        <Card className="er-card-raised overflow-hidden p-0">
+        <Card className="overflow-hidden p-0">
           <div className="divide-y divide-border">
             {reg.registry.map((entry, i) => (
               <div
                 key={entry.actionId}
-                className="er-lift flex items-center gap-3 px-4 py-3 hover:bg-secondary/30"
+                className="flex items-center gap-3 px-4 py-3 hover:bg-secondary/30"
               >
                 <span className="er-caption text-muted-foreground w-6">#{i + 1}</span>
                 <code className="font-mono text-sm text-foreground flex-1 truncate">

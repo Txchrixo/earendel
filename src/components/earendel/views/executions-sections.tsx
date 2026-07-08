@@ -729,16 +729,11 @@ function ReplayCompareCard({
   const tracesChanged = original.traces.length !== replay.traces.length;
 
   return (
-    <Card className="er-card-raised gap-3 p-5">
+    <Card className="gap-3 p-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span
-            className="grid size-8 place-items-center rounded-md"
-            style={{
-              background:
-                "linear-gradient(135deg, rgba(107,88,118,0.40), rgba(122,133,72,0.18))",
-              color: "#E8E0D4",
-            }}
+            className="grid size-8 place-items-center rounded-md bg-secondary text-muted-foreground"
           >
             <Icon name="diff" size={16} aria-hidden />
           </span>

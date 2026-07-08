@@ -155,7 +155,7 @@ function Header({ action, refetch }: { action: TypedAction; refetch: () => void 
   const [publishOpen, setPublishOpen] = React.useState(false);
 
   return (
-    <Card className="er-surface gap-4 p-5">
+    <Card className="gap-4 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-3">
           <Button

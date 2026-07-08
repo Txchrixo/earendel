@@ -514,7 +514,7 @@ export function VersionsTab({ action }: { action: TypedAction }) {
           <Card
             key={v.version}
             className={cn(
-              "er-card-raised gap-2 p-4 transition-colors",
+              "gap-2 p-4 transition-colors",
               isCurrent && "border-accent",
               isSelectedA && "ring-1 ring-chart-2",
               isSelectedB && "ring-1 ring-chart-4",
@@ -522,13 +522,7 @@ export function VersionsTab({ action }: { action: TypedAction }) {
           >
             <div className="flex flex-wrap items-center gap-3">
               <span
-                className="grid size-8 place-items-center rounded-md font-mono text-xs font-bold"
-                style={{
-                  background: isCurrent
-                    ? "linear-gradient(135deg, rgba(122,133,72,0.40), rgba(122,133,72,0.15))"
-                    : "linear-gradient(135deg, rgba(107,88,118,0.30), rgba(107,88,118,0.10))",
-                  color: "#E8E0D4",
-                }}
+                className="grid size-8 place-items-center rounded-md bg-secondary text-muted-foreground font-mono text-xs font-bold"
               >
                 v{v.version}
               </span>
@@ -621,15 +615,11 @@ function VersionDiffCard({
     (new Date(b.releasedAt).getTime() - new Date(a.releasedAt).getTime()) / 86400000;
 
   return (
-    <Card className="er-card-raised gap-3 p-5 border-accent/40">
+    <Card className="gap-3 p-5 border-accent/40">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span
-            className="grid size-8 place-items-center rounded-md"
-            style={{
-              background: "linear-gradient(135deg, rgba(107,88,118,0.40), rgba(122,133,72,0.18))",
-              color: "#E8E0D4",
-            }}
+            className="grid size-8 place-items-center rounded-md bg-primary text-primary-foreground"
           >
             <Icon name="diff" size={16} aria-hidden />
           </span>
@@ -911,7 +901,7 @@ export function DependenciesTab({ action }: { action: TypedAction }) {
       className="flex flex-col gap-4"
     >
       {/* Connector dependency */}
-      <Card className="er-card-raised gap-3 p-5">
+      <Card className="gap-3 p-5">
         <div className="flex items-center gap-2">
           <Icon name="connectors" size={14} aria-hidden />
           <h4 className="text-sm font-medium">Connector</h4>
@@ -934,11 +924,7 @@ export function DependenciesTab({ action }: { action: TypedAction }) {
         ) : connector ? (
           <div className="flex flex-wrap items-center gap-3">
             <span
-              className="grid size-9 place-items-center rounded-md"
-              style={{
-                background: "linear-gradient(135deg, rgba(107,88,118,0.35), rgba(122,133,72,0.18))",
-                color: "#E8E0D4",
-              }}
+              className="grid size-9 place-items-center rounded-md bg-primary text-primary-foreground"
             >
               <Icon name="globe" size={16} aria-hidden />
             </span>
@@ -959,7 +945,7 @@ export function DependenciesTab({ action }: { action: TypedAction }) {
 
       {/* Credential vault */}
       {connector && (
-        <Card className="er-card-raised gap-3 p-5">
+        <Card className="gap-3 p-5">
           <div className="flex items-center gap-2">
             <Icon name="lock" size={14} aria-hidden />
             <h4 className="text-sm font-medium">Credential vault</h4>
@@ -986,7 +972,7 @@ export function DependenciesTab({ action }: { action: TypedAction }) {
       )}
 
       {/* Adapter chain */}
-      <Card className="er-card-raised gap-3 p-5">
+      <Card className="gap-3 p-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Icon name="iterations" size={14} aria-hidden />
@@ -1024,7 +1010,7 @@ export function DependenciesTab({ action }: { action: TypedAction }) {
       </Card>
 
       {/* Permission + risk summary */}
-      <Card className="er-card-raised gap-3 p-5">
+      <Card className="gap-3 p-5">
         <div className="flex items-center gap-2">
           <Icon name="shield" size={14} aria-hidden />
           <h4 className="text-sm font-medium">Permission & risk</h4>

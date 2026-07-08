@@ -137,13 +137,7 @@ export function ConnectorDetailView() {
             <Icon name="chevronLeft" size={18} aria-hidden />
           </Button>
           <span
-            className="grid size-12 place-items-center rounded-md"
-            style={{
-              background:
-                "linear-gradient(135deg, rgba(107,88,118,0.40), rgba(122,133,72,0.18))",
-              color: "#E8E0D4",
-              boxShadow: "inset 0 0 0 1px rgba(232,224,212,0.08)",
-            }}
+            className="grid size-12 place-items-center rounded-md bg-primary text-primary-foreground"
           >
             <Icon name={catIcon} size={24} aria-hidden />
           </span>
@@ -168,7 +162,7 @@ export function ConnectorDetailView() {
 
       <div className="grid gap-5 md:grid-cols-3">
         {/* Identity & vault */}
-        <Card className="er-card-raised p-5 md:col-span-2">
+        <Card className="p-5 md:col-span-2">
           <h3 className="er-h3 mb-3 flex items-center gap-2">
             <Icon name="server" size={18} aria-hidden /> Bridge identity
           </h3>
@@ -234,7 +228,7 @@ export function ConnectorDetailView() {
         </Card>
 
         {/* Quick actions */}
-        <Card className="er-card-raised p-5">
+        <Card className="p-5">
           <h3 className="er-h3 mb-3 flex items-center gap-2">
             <Icon name="tools" size={18} aria-hidden /> Actions
           </h3>
@@ -299,7 +293,7 @@ export function ConnectorDetailView() {
             {connectorActions.map((a) => (
               <Card
                 key={a.id}
-                className="er-card-raised er-lift cursor-pointer p-4"
+                className="cursor-pointer p-4"
                 onClick={() => openAction(a.id)}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -364,13 +358,13 @@ export function ConnectorDetailView() {
             description="Run an action on this connector to see traces here."
           />
         ) : (
-          <Card className="er-card-raised overflow-hidden p-0">
+          <Card className="overflow-hidden p-0">
             <div className="divide-y divide-border">
               {connectorExecutions.map((e) => (
                 <button
                   key={e.id}
                   onClick={() => openExecution(e.id)}
-                  className="er-lift flex w-full items-center gap-4 px-4 py-3 text-left hover:bg-secondary/40"
+                  className="flex w-full items-center gap-4 px-4 py-3 text-left hover:bg-secondary/40"
                 >
                   <StatusDot status={e.status} />
                   <span className="font-mono text-sm text-foreground flex-1 truncate">
@@ -405,7 +399,7 @@ export function ConnectorDetailView() {
         ) : (
           <div className="flex flex-col gap-3">
             {connectorRepairs.map((r) => (
-              <Card key={r.id} className="er-card-raised gap-2 p-4">
+              <Card key={r.id} className="gap-2 p-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <Icon name="bug" size={12} className="text-chart-4" aria-hidden />
                   <code className="font-mono text-xs text-muted-foreground">
@@ -480,7 +474,7 @@ function ConnectorHealthCard({
   const overallOk = successRate >= 0.8 && canaryRate >= 0.8 && openRepairs === 0;
 
   return (
-    <Card className="er-card-raised mt-6 gap-3 p-5">
+    <Card className="mt-6 gap-3 p-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Icon name="pulse" size={14} className="text-accent" aria-hidden />
