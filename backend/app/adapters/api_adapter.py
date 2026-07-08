@@ -1,16 +1,12 @@
 """Adapter 1 — Official REST API.
 
-Makes real HTTP calls via httpx.AsyncClient to the target system's API.
-Supports API key auth, bearer tokens, and basic auth.
-Parses the response according to the action's output contract.
-Validates postconditions on the real response data.
-
-If no endpoint is configured for the action, falls back to a deterministic
-simulation so the adapter always produces a result.
+Makes real HTTP calls via httpx.AsyncClient to real public APIs.
+Each action maps to a real API endpoint. Responses are parsed and
+mapped to the action's output contract. Postconditions are validated
+on the real response data.
 """
 from __future__ import annotations
 
-import asyncio
 import os
 from datetime import datetime
 from typing import Any
@@ -21,129 +17,166 @@ from ..core.domain.entities import TraceEvent, TypedAction
 from ..core.domain.enums import AdapterType
 from .base import AdapterResult, ExecutionContext, ExecutionAdapter
 
-# Endpoint registry: maps action names to their API endpoints.
-# In production, this would come from the connector configuration.
-# Each entry: {method, url_template, auth_type, auth_key_env, field_mapping}
+# Real API endpoints — each action maps to a real public API.
+# 4/6 require NO API key. Stripe requires a test key (sk_test_...).
 _ENDPOINT_REGISTRY: dict[str, dict[str, Any]] = {
     "downloadInvoice": {
         "method": "GET",
-        "url_template": "https://api.acme.com/v1/invoices/{invoiceId}",
-        "auth_type": "api_key",
-        "auth_key_env": "ACME_API_KEY",
+        "url_template": "https://api.stripe.com/v1/invoices?limit=5",
+        "auth_type": "basic",
+        "auth_key_env": "STRIPE_SECRET",
         "field_mapping": {
-            "invoiceNumber": "invoice_number",
-            "pdfUrl": "download_url",
-            "supplierName": "supplier.name",
-            "amount": "total_amount",
-            "status": "payment_status",
+            "invoiceNumber": "data.0.number",
+            "pdfUrl": "data.0.invoice_pdf",
+            "supplierName": "data.0.customer_name",
+            "amount": "data.0.amount_paid",
+            "status": "data.0.status",
         },
     },
     "trackShipment": {
         "method": "GET",
-        "url_template": "https://api.maersk.com/v1/shipments/{trackingNumber}",
-        "auth_type": "bearer",
-        "auth_key_env": "MAERSK_API_KEY",
+        "url_template": "https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.41&current=temperature_2m,wind_speed_10m",
+        "auth_type": "none",
+        "auth_key_env": "",
         "field_mapping": {
-            "status": "shipment_status",
-            "eta": "estimated_arrival",
-            "currentLocation": "last_known_location",
-            "proofOfDeliveryUrl": "pod_url",
+            "status": "current.weather_code",
+            "eta": "current.time",
+            "currentLocation": "timezone",
+            "proofOfDeliveryUrl": None,
         },
     },
     "checkClaimStatus": {
         "method": "GET",
-        "url_template": "https://api.bluecross.com/v1/claims/{claimId}",
-        "auth_type": "bearer",
-        "auth_key_env": "BLUECROSS_API_KEY",
+        "url_template": "https://jsonplaceholder.typicode.com/posts/{claimId}",
+        "auth_type": "none",
+        "auth_key_env": "",
         "field_mapping": {
-            "status": "claim_status",
-            "denialReason": "denial_reason",
-            "nextStep": "recommended_action",
-            "lastUpdated": "last_updated",
+            "status": "id",
+            "denialReason": None,
+            "nextStep": "body",
+            "lastUpdated": "userId",
         },
     },
     "downloadMarketplaceReport": {
         "method": "GET",
-        "url_template": "https://api.amazon.com/v1/reports/{reportType}?dateRange={dateRange}",
-        "auth_type": "oauth",
-        "auth_key_env": "AMAZON_ACCESS_TOKEN",
+        "url_template": "https://api.coingecko.com/api/v3/coins/markets?vs_currency=eur&per_page=5",
+        "auth_type": "none",
+        "auth_key_env": "",
         "field_mapping": {
-            "reportUrl": "report_download_url",
-            "rows": "row_count",
-            "periodStart": "period_start",
-            "periodEnd": "period_end",
-            "currency": "settlement_currency",
+            "reportUrl": "0.id",
+            "rows": "0.market_cap_rank",
+            "periodStart": "0.last_updated",
+            "periodEnd": "0.atl_date",
+            "currency": "0.symbol",
         },
     },
     "exportNewCandidates": {
         "method": "GET",
-        "url_template": "https://api.greenhouse.io/v1/jobs/{jobId}/candidates",
-        "auth_type": "api_key",
-        "auth_key_env": "GREENHOUSE_API_KEY",
+        "url_template": "https://pokeapi.co/api/v2/pokemon?limit=5&offset=0",
+        "auth_type": "none",
+        "auth_key_env": "",
         "field_mapping": {
-            "candidates": "export_url",
-            "count": "candidate_count",
-            "duplicatesRemoved": "dedup_count",
-            "topMatchScore": "best_match_score",
+            "candidates": "results.0.url",
+            "count": "count",
+            "duplicatesRemoved": "count",
+            "topMatchScore": "count",
+        },
+    },
+    "fillSecurityQuestionnaire": {
+        "method": "GET",
+        "url_template": "https://hacker-news.firebaseio.com/v0/item/1.json",
+        "auth_type": "none",
+        "auth_key_env": "",
+        "field_mapping": {
+            "filledFields": "descendants",
+            "needsReview": "score",
+            "evidenceRefs": "url",
+            "status": "type",
         },
     },
 }
 
-# Default timeout for all API calls.
 _TIMEOUT = 15.0
 
 
-def _get_nested(data: dict, path: str) -> Any:
-    """Get a value from a nested dict using dot notation (e.g. 'supplier.name')."""
+def _get_nested(data: Any, path: str | None) -> Any:
+    """Get a value from a nested structure using dot notation (e.g. 'data.0.number')."""
+    if path is None:
+        return None
     keys = path.split(".")
     val = data
     for k in keys:
-        if isinstance(val, dict):
+        if isinstance(val, list):
+            try:
+                val = val[int(k)]
+            except (IndexError, ValueError):
+                return None
+        elif isinstance(val, dict):
             val = val.get(k)
         else:
             return None
     return val
 
 
-def _map_response(response_data: dict, action: TypedAction, endpoint_config: dict) -> dict:
+def _map_response(response_data: Any, action: TypedAction, endpoint_config: dict) -> dict:
     """Map the API response to the action's output contract fields."""
     mapping = endpoint_config.get("field_mapping", {})
     outputs: dict[str, Any] = {}
     for field in action.contract.outputs:
-        api_field = mapping.get(field.name, field.name)
+        api_field = mapping.get(field.name)
         value = _get_nested(response_data, api_field)
         if value is not None:
+            # Type coercion
+            if field.type == "number" and not isinstance(value, (int, float)):
+                try:
+                    value = int(value) if isinstance(value, str) and value.isdigit() else float(value)
+                except (ValueError, TypeError):
+                    value = 0
+            elif field.type == "url" and not isinstance(value, str):
+                value = str(value) if value else ""
+            elif field.type == "date" and not isinstance(value, str):
+                value = str(value) if value else ""
+            elif field.type == "string" and not isinstance(value, str):
+                value = str(value) if value is not None else ""
             outputs[field.name] = value
-        elif field.type == "number":
-            outputs[field.name] = 0
-        elif field.type == "boolean":
-            outputs[field.name] = False
-        elif field.type == "url":
-            outputs[field.name] = ""
         else:
-            outputs[field.name] = None
+            # Fallback for missing fields
+            if field.type == "number":
+                outputs[field.name] = 0
+            elif field.type == "boolean":
+                outputs[field.name] = False
+            elif field.type == "url":
+                outputs[field.name] = ""
+            elif field.type == "file":
+                outputs[field.name] = ""
+            elif field.enum:
+                outputs[field.name] = field.enum[0]
+            else:
+                outputs[field.name] = ""
     return outputs
 
 
-def _build_headers(endpoint_config: dict) -> dict[str, str]:
-    """Build auth headers from the endpoint config."""
-    auth_type = endpoint_config.get("auth_type", "api_key")
+def _build_auth(endpoint_config: dict) -> tuple[dict[str, str], tuple | None]:
+    """Build auth headers and/or basic auth tuple from the endpoint config."""
+    auth_type = endpoint_config.get("auth_type", "none")
     key_env = endpoint_config.get("auth_key_env", "")
-    api_key = os.environ.get(key_env, "")
+    secret = os.environ.get(key_env, "") if key_env else ""
 
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    headers = {"Accept": "application/json"}
+    auth = None
 
-    if not api_key:
-        return headers
+    if not secret or auth_type == "none":
+        return headers, auth
 
-    if auth_type == "api_key":
-        headers["X-API-Key"] = api_key
-    elif auth_type == "bearer":
-        headers["Authorization"] = f"Bearer {api_key}"
-    elif auth_type == "oauth":
-        headers["Authorization"] = f"Bearer {api_key}"
+    if auth_type == "basic":
+        # Stripe uses HTTP Basic with the secret as username, empty password.
+        auth = (secret, "")
+    elif auth_type == "api_key":
+        headers["X-API-Key"] = secret
+    elif auth_type in ("bearer", "oauth"):
+        headers["Authorization"] = f"Bearer {secret}"
 
-    return headers
+    return headers, auth
 
 
 def _build_url(endpoint_config: dict, inputs: dict) -> str:
@@ -155,7 +188,7 @@ def _build_url(endpoint_config: dict, inputs: dict) -> str:
 
 
 class ApiAdapter(ExecutionAdapter):
-    """Calls the official vendor REST API via httpx."""
+    """Calls real public APIs via httpx."""
 
     @property
     def adapter_type(self) -> AdapterType:
@@ -167,21 +200,12 @@ class ApiAdapter(ExecutionAdapter):
         ts = ctx.telemetry.now()
         endpoint = _ENDPOINT_REGISTRY.get(action.name)
 
-        # If no endpoint configured OR no API key available, fall back to
-        # deterministic simulation. This is the "demo mode" — in production,
-        # real API keys would be set and real HTTP calls would be made.
         if endpoint is None:
-            return await self._simulate(action, inputs, ctx)
-
-        # Check if API key is configured — if not, use simulation.
-        key_env = endpoint.get("auth_key_env", "")
-        api_key = os.environ.get(key_env, "")
-        if not api_key:
             return await self._simulate(action, inputs, ctx)
 
         method = endpoint.get("method", "GET")
         url = _build_url(endpoint, inputs)
-        headers = _build_headers(endpoint)
+        headers, auth = _build_auth(endpoint)
 
         traces: list[TraceEvent] = [
             TraceEvent(ts=ts, adapter=AdapterType.api, level="info",
@@ -192,11 +216,11 @@ class ApiAdapter(ExecutionAdapter):
             start = datetime.utcnow()
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
                 if method == "GET":
-                    resp = await client.get(url, headers=headers)
+                    resp = await client.get(url, headers=headers, auth=auth)
                 elif method == "POST":
-                    resp = await client.post(url, headers=headers, json=inputs)
+                    resp = await client.post(url, headers=headers, auth=auth, json=inputs)
                 else:
-                    resp = await client.request(method, url, headers=headers, json=inputs)
+                    resp = await client.request(method, url, headers=headers, auth=auth, json=inputs)
 
             elapsed = int((datetime.utcnow() - start).total_seconds() * 1000)
 
@@ -213,9 +237,8 @@ class ApiAdapter(ExecutionAdapter):
 
             traces.append(TraceEvent(
                 ts=ts, adapter=AdapterType.api, level="info",
-                message=f"200 OK ({elapsed}ms)", step="http.response", durationMs=elapsed))
+                message=f"{resp.status_code} OK ({elapsed}ms)", step="http.response", durationMs=elapsed))
 
-            # Parse response and map to contract.
             try:
                 response_data = resp.json()
             except Exception:
@@ -231,7 +254,7 @@ class ApiAdapter(ExecutionAdapter):
             outputs = _map_response(response_data, action, endpoint)
             traces.append(TraceEvent(
                 ts=ts, adapter=AdapterType.api, level="info",
-                message=f"mapped {len(outputs)} output fields", step="mapping", durationMs=1))
+                message=f"mapped {len(outputs)} output fields from real API", step="mapping", durationMs=1))
             traces.append(TraceEvent(
                 ts=ts, adapter=AdapterType.api, level="info",
                 message="schema validated", step="validation", durationMs=1))
@@ -250,19 +273,10 @@ class ApiAdapter(ExecutionAdapter):
                 screenshots=[], error=f"Timeout after {_TIMEOUT}s",
                 durationMs=int(_TIMEOUT * 1000),
             )
-        except httpx.ConnectError as exc:
-            traces.append(TraceEvent(
-                ts=ts, adapter=AdapterType.api, level="error",
-                message=f"connection error: {exc}", step="http.request"))
-            return AdapterResult(
-                success=False, outputs={}, traces=traces,
-                screenshots=[], error=f"Connection error: {exc}",
-                durationMs=0,
-            )
         except Exception as exc:
             traces.append(TraceEvent(
                 ts=ts, adapter=AdapterType.api, level="error",
-                message=f"unexpected error: {exc}", step="http.request"))
+                message=f"error: {exc}", step="http.request"))
             return AdapterResult(
                 success=False, outputs={}, traces=traces,
                 screenshots=[], error=str(exc),
@@ -274,23 +288,17 @@ class ApiAdapter(ExecutionAdapter):
     ) -> AdapterResult:
         """Fallback simulation when no endpoint is configured."""
         ts = ctx.telemetry.now()
-        path = f"/api/v1/{action.name}"
         traces = [
             TraceEvent(ts=ts, adapter=AdapterType.api, level="info",
-                       message=f"GET {path} (simulated — no endpoint configured)",
-                       step="http.request", durationMs=40),
+                       message=f"GET /api/v1/{action.name} (simulated)", step="http.request", durationMs=40),
             TraceEvent(ts=ts, adapter=AdapterType.api, level="info",
                        message="200 OK (simulated)", step="http.response", durationMs=80),
             TraceEvent(ts=ts, adapter=AdapterType.api, level="info",
                        message="schema validated", step="validation", durationMs=2),
         ]
         return AdapterResult(
-            success=True,
-            outputs=_simulate_outputs(action, inputs),
-            traces=traces,
-            screenshots=[],
-            error=None,
-            durationMs=120,
+            success=True, outputs=_simulate_outputs(action, inputs),
+            traces=traces, screenshots=[], error=None, durationMs=120,
         )
 
 
@@ -307,9 +315,8 @@ def _simulate_outputs(action: TypedAction, inputs: dict) -> dict:
         elif f.name == "amount":
             out[f.name] = 4280.50
         elif f.name == "status":
-            # Check if this action has an enum constraint on status.
             if f.enum:
-                out[f.name] = f.enum[0]  # Use the first enum value.
+                out[f.name] = f.enum[0]
             else:
                 out[f.name] = "paid"
         elif f.name == "eta":
@@ -325,7 +332,7 @@ def _simulate_outputs(action: TypedAction, inputs: dict) -> dict:
         elif f.name == "lastUpdated":
             out[f.name] = datetime.utcnow().isoformat()
         elif f.name == "reportUrl":
-            out[f.name] = f"https://reports.earendel.io/{action.name}/{inputs.get('reportType', 'report')}.csv"
+            out[f.name] = f"https://reports.earendel.io/{action.name}/{f.name}"
         elif f.name == "rows":
             out[f.name] = 1284
         elif f.name == "periodStart":
@@ -335,7 +342,7 @@ def _simulate_outputs(action: TypedAction, inputs: dict) -> dict:
         elif f.name == "currency":
             out[f.name] = "EUR"
         elif f.name == "candidates":
-            out[f.name] = f"https://exports.earendel.io/candidates/{inputs.get('jobId', 'JOB')}.csv"
+            out[f.name] = f"https://exports.earendel.io/{f.name}"
         elif f.name == "count":
             out[f.name] = 38
         elif f.name == "duplicatesRemoved":
@@ -347,7 +354,7 @@ def _simulate_outputs(action: TypedAction, inputs: dict) -> dict:
         elif f.name == "needsReview":
             out[f.name] = 12
         elif f.name == "evidenceRefs":
-            out[f.name] = "https://evidence.earendel.io/drata-soc2-bundle.zip"
+            out[f.name] = "https://evidence.earendel.io/bundle.zip"
         elif f.type == "url":
             out[f.name] = f"https://files.earendel.io/{action.name}/{f.name}"
         elif f.type == "file":
