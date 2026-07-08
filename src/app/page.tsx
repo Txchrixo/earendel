@@ -1,9 +1,8 @@
 "use client";
 
-import * as React from "react";
+import { useSession } from "next-auth/react";
 import { AppShell } from "@/components/earendel/app-shell";
 import { LandingPage } from "@/components/earendel/landing-page";
-import { AuthDialog } from "@/components/earendel/auth-dialog";
 import { useStudio } from "@/lib/earendel/store";
 import { DashboardView } from "@/components/earendel/views/dashboard-view";
 import { ConnectorsView } from "@/components/earendel/views/connectors-view";
@@ -48,18 +47,27 @@ function CurrentView() {
 }
 
 export default function Home() {
-  const entered = useStudio((s) => s.entered);
+  const { data: session, status } = useSession();
   const setEntered = useStudio((s) => s.setEntered);
 
-  if (!entered) {
+  // Sync entered state with session
+  const isAuthenticated = status === "authenticated" && !!session;
+
+  if (status === "loading") {
     return (
-      <>
-        <LandingPage
-          onEnter={() => setEntered(true)}
-          onAuth={() => useStudio.getState().setAuthOpen(true)}
-        />
-        <AuthDialog />
-      </>
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="er-pulse text-muted-foreground">Loading…</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <LandingPage
+        onEnter={() => setEntered(true)}
+        onAuth={() => (window.location.href = "/auth/signin")}
+        onSignUp={() => (window.location.href = "/auth/signup")}
+      />
     );
   }
 

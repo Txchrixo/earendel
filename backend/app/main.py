@@ -1,12 +1,15 @@
-"""Earendel — FastAPI app assembly, CORS, startup, routers."""
+"""Earendel — FastAPI app assembly, CORS, auth middleware, startup, routers."""
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, Depends
+import jwt
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .api.deps import get_action_registry, get_orchestrator
 from .config import settings
@@ -25,6 +28,23 @@ logging.basicConfig(level=logging.INFO)
 
 _START_TIME = datetime.utcnow()
 
+# Shared secret for JWT verification (same as NextAuth BACKEND_SECRET).
+BACKEND_SECRET = os.environ.get(
+    "BACKEND_SECRET",
+    os.environ.get("NEXTAUTH_SECRET", "dev-secret-change-me"),
+)
+
+# Public paths that don't require authentication.
+PUBLIC_PREFIXES = (
+    "/api/v1/health",
+    "/api/v1/healthz",
+    "/api/v1/readyz",
+    "/api/v1/auth/",
+    "/docs",
+    "/openapi",
+    "/redoc",
+)
+
 app = FastAPI(title="Earendel", version=settings.version,
               description="Reliability layer that turns authorized business "
                           "workflows into typed, monitored, repairable tools.")
@@ -36,6 +56,60 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """JWT auth middleware — verifies the backendToken on every protected endpoint.
+
+    Public endpoints (health, auth, docs) are exempt.
+    The token is expected in the Authorization: Bearer <token> header.
+    """
+    path = request.url.path
+
+    # Public endpoints: skip auth.
+    if any(path.startswith(p) for p in PUBLIC_PREFIXES):
+        return await call_next(request)
+
+    # Extract token from Authorization header.
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+    else:
+        # Also accept token from query param (for SSE / download endpoints).
+        token = request.query_params.get("token", "")
+
+    if not token:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Authentication required"},
+        )
+
+    try:
+        payload = jwt.decode(
+            token,
+            BACKEND_SECRET,
+            algorithms=["HS256"],
+            issuer="earendel-studio",
+            audience="earendel-api",
+        )
+        # Attach user info to request state for downstream handlers.
+        request.state.user = {
+            "uid": payload.get("uid", ""),
+            "email": payload.get("email", ""),
+        }
+    except jwt.ExpiredSignatureError:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Token expired"},
+        )
+    except jwt.InvalidTokenError as exc:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": f"Invalid token: {exc}"},
+        )
+
+    return await call_next(request)
 
 
 @app.on_event("startup")

@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 interface LandingPageProps {
   onEnter: () => void;
   onAuth: () => void;
+  onSignUp: () => void;
 }
 
 const PIPELINE = [
@@ -36,7 +37,7 @@ const STATS = [
   { value: "<2s", label: "LLM-backed contract compilation" },
 ];
 
-export function LandingPage({ onEnter, onAuth }: LandingPageProps) {
+export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Nav */}
@@ -78,15 +79,15 @@ export function LandingPage({ onEnter, onAuth }: LandingPageProps) {
             and tests, and publishes them as MCP tools your agents can call reliably.
           </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Button size="lg" onClick={onAuth}>
+            <Button size="lg" onClick={onSignUp}>
               <Icon name="plus" size={16} aria-hidden /> Get started free
             </Button>
-            <Button size="lg" variant="outline" onClick={onEnter}>
-              <Icon name="playground" size={16} aria-hidden /> Try the demo
+            <Button size="lg" variant="outline" onClick={onAuth}>
+              <Icon name="person" size={16} aria-hidden /> Sign in
             </Button>
           </div>
           <p className="er-caption mt-4 text-muted-foreground">
-            No credit card. 6 seeded connectors ready to explore.
+            Free to start. No credit card required.
           </p>
         </motion.div>
       </section>
@@ -187,8 +188,8 @@ export function LandingPage({ onEnter, onAuth }: LandingPageProps) {
             Record your first workflow in under five minutes. Compile it to a typed action.
             Publish it as an MCP tool. Let your agents call it reliably.
           </p>
-          <Button size="lg" className="mt-8" onClick={onAuth}>
-            <Icon name="telescope" size={16} aria-hidden /> Enter the Studio
+          <Button size="lg" className="mt-8" onClick={onSignUp}>
+            <Icon name="telescope" size={16} aria-hidden /> Get started free
           </Button>
         </div>
       </section>

@@ -1,5 +1,6 @@
 // Earendel API client — talks to the FastAPI modular backend via the Caddy
 // gateway using XTransformPort=8001. All requests use relative paths.
+// Auth: the backendToken from NextAuth is injected via setAuthToken().
 
 import type {
   Connector,
@@ -17,6 +18,14 @@ import type {
 } from "./types";
 
 const BACKEND_PORT = "8001";
+
+// Module-level token cache — set by the TokenSync component from the
+// NextAuth session. This avoids calling getSession() on every API request.
+let _authToken: string | null = null;
+
+export function setAuthToken(token: string | null) {
+  _authToken = token;
+}
 
 class ApiError extends Error {
   status: number;
@@ -41,6 +50,7 @@ async function request<T>(
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(_authToken ? { Authorization: `Bearer ${_authToken}` } : {}),
       ...(init?.headers || {}),
     },
   });
@@ -62,9 +72,7 @@ export const api = {
   stats: () => request<DashboardStats>("/api/v1/dashboard/stats"),
   monitoring: () => request<MonitoringSummary>("/api/v1/monitoring/summary"),
   activity: () => request<ActivityFeed>("/api/v1/dashboard/activity"),
-  /** Generic raw GET for endpoints with arbitrary response shapes (e.g. /healthz, /readyz). */
   raw: <T,>(path: string) => request<T>(path),
-  /** Global search across actions, connectors, and executions. */
   search: (q: string) =>
     request<SearchResults>("/api/v1/search", { params: { q } }),
 

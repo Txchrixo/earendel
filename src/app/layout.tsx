@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Cormorant_Garamond, Hanken_Grotesk } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import { Providers } from "@/components/providers";
 
 const heading = Cormorant_Garamond({
   variable: "--font-heading",
@@ -20,50 +21,26 @@ const body = Hanken_Grotesk({
 export const metadata: Metadata = {
   title: "Earendel — Typed Actions for Agents",
   description:
-    "Earendel is a reliability layer that turns repeated authorized business workflows into typed, monitored, repairable tools for AI agents. Record once, compile to a typed action, validate continuously, repair automatically.",
-  keywords: [
-    "Earendel",
-    "NoAPI",
-    "typed actions",
-    "web verbs",
-    "MCP",
-    "agent tools",
-    "RPA",
-    "AutoRPA",
-    "workflow automation",
-  ],
+    "Earendel is a reliability layer that turns repeated authorized business workflows into typed, monitored, repairable tools for AI agents.",
+  keywords: ["Earendel", "typed actions", "MCP", "agent tools", "RPA", "AutoRPA"],
   authors: [{ name: "Earendel" }],
-  icons: {
-    icon: "/logo.svg",
-  },
-  openGraph: {
-    title: "Earendel — Typed Actions for Agents",
-    description:
-      "Record authorized human workflows. Compile to typed, monitored, repairable tools agents can call.",
-    type: "website",
-  },
+  icons: { icon: "/logo.svg" },
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
-      <body
-        className={`${heading.variable} ${body.variable} antialiased bg-background text-foreground`}
-      >
-        {children}
-        <Toaster />
+      <body className={`${heading.variable} ${body.variable} antialiased bg-background text-foreground`}>
+        <Providers>
+          {children}
+          <Toaster />
+        </Providers>
       </body>
     </html>
   );
