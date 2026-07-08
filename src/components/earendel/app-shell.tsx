@@ -3,7 +3,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { GlobalSearch } from "./global-search";
 import {
   Sheet,
   SheetContent,
@@ -169,20 +169,7 @@ function Header() {
       </div>
 
       <div className="hidden flex-1 max-w-md items-center gap-2 lg:flex">
-        <div className="relative w-full">
-          <Icon
-            name="search"
-            size={14}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <Input
-            type="search"
-            placeholder="Search actions, connectors, executions…"
-            aria-label="Search"
-            className="pl-9"
-          />
-        </div>
+        <GlobalSearch />
       </div>
 
       <Button onClick={() => setView("connectors")} className="hidden sm:inline-flex">

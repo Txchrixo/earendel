@@ -246,6 +246,41 @@ export interface TimeSeries {
   generatedAt: string;
 }
 
+export interface SearchActionHit {
+  id: string;
+  name: string;
+  signature: string;
+  description: string;
+  category: string;
+  status: string;
+  version: string;
+}
+
+export interface SearchConnectorHit {
+  id: string;
+  name: string;
+  targetApp: string;
+  targetDomain: string;
+  category: string;
+  status: string;
+}
+
+export interface SearchExecutionHit {
+  id: string;
+  actionId: string;
+  actionName: string;
+  status: string;
+  adapter: string;
+  caller: string;
+  durationMs: number;
+}
+
+export interface SearchResults {
+  actions: SearchActionHit[];
+  connectors: SearchConnectorHit[];
+  executions: SearchExecutionHit[];
+}
+
 export interface DashboardStats {
   connectors: number;
   recordings: number;

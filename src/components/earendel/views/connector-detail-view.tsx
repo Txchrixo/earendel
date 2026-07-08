@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -272,6 +273,13 @@ export function ConnectorDetailView() {
         </Card>
       </div>
 
+      {/* Health card */}
+      <ConnectorHealthCard
+        actions={connectorActions}
+        executions={connectorExecutions}
+        repairs={connectorRepairs}
+      />
+
       {/* Compiled actions */}
       <div className="mt-8">
         <SectionTitle
@@ -434,6 +442,116 @@ export function ConnectorDetailView() {
         )}
       </div>
     </motion.div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* ConnectorHealthCard — canary pass rate + recent failures summary   */
+/* ------------------------------------------------------------------ */
+
+function ConnectorHealthCard({
+  actions,
+  executions,
+  repairs,
+}: {
+  actions: TypedAction[];
+  executions: Execution[];
+  repairs: RepairProposal[];
+}) {
+  // Aggregate canary pass rate across the connector's actions.
+  const canaryTotal = actions.reduce((sum, a) => sum + a.canary.length, 0);
+  const canaryPassed = actions.reduce(
+    (sum, a) => sum + a.canary.filter((c) => c.lastStatus === "passed").length,
+    0,
+  );
+  const canaryRate = canaryTotal > 0 ? canaryPassed / canaryTotal : 1;
+
+  // Recent failures (failed/degraded/human_review).
+  const failures = executions.filter(
+    (e) => e.status === "failed" || e.status === "degraded" || e.status === "human_review",
+  );
+  const successes = executions.filter((e) => e.status === "success");
+  const successRate = executions.length > 0 ? successes.length / executions.length : 1;
+
+  const openRepairs = repairs.filter((r) => r.status === "pending").length;
+  const healthyActions = actions.filter((a) => a.status === "published").length;
+  const degradedActions = actions.filter((a) => a.status === "degraded").length;
+
+  const overallOk = successRate >= 0.8 && canaryRate >= 0.8 && openRepairs === 0;
+
+  return (
+    <Card className="er-card-raised mt-6 gap-3 p-5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Icon name="pulse" size={14} className="text-accent" aria-hidden />
+          <h3 className="er-h3">Health</h3>
+        </div>
+        <Badge className={overallOk ? "er-pill-success" : "er-pill-warn"}>
+          <span className="size-1.5 rounded-full bg-current er-pulse mr-1" aria-hidden />
+          {overallOk ? "healthy" : "needs attention"}
+        </Badge>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <HealthMetric
+          label="Success rate"
+          value={`${Math.round(successRate * 100)}%`}
+          ok={successRate >= 0.8}
+          icon="checkCircle"
+        />
+        <HealthMetric
+          label="Canary pass"
+          value={`${Math.round(canaryRate * 100)}%`}
+          ok={canaryRate >= 0.8}
+          icon="beaker"
+        />
+        <HealthMetric
+          label="Open repairs"
+          value={String(openRepairs)}
+          ok={openRepairs === 0}
+          icon="tools"
+        />
+        <HealthMetric
+          label="Actions"
+          value={`${healthyActions}/${actions.length}`}
+          ok={degradedActions === 0}
+          icon="actions"
+        />
+      </div>
+      {failures.length > 0 && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3">
+          <p className="er-caption text-destructive flex items-center gap-1.5 mb-1">
+            <Icon name="alertFill" size={11} aria-hidden /> {failures.length} recent failure(s)
+          </p>
+          <p className="er-caption text-muted-foreground">
+            {failures.slice(0, 3).map((f) => f.actionName).join(", ")}
+            {failures.length > 3 && ` +${failures.length - 3} more`}
+          </p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function HealthMetric({
+  label,
+  value,
+  ok,
+  icon,
+}: {
+  label: string;
+  value: string;
+  ok: boolean;
+  icon: "checkCircle" | "beaker" | "tools" | "actions";
+}) {
+  return (
+    <div className="rounded-md border border-border bg-background/40 p-3">
+      <p className="er-caption text-muted-foreground flex items-center gap-1 mb-1">
+        <Icon name={icon} size={11} aria-hidden /> {label}
+      </p>
+      <p className={cn("font-heading text-xl leading-none tabular-nums", ok ? "text-accent" : "text-chart-4")}>
+        {value}
+      </p>
+    </div>
   );
 }
 

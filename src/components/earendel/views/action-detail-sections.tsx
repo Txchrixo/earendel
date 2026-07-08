@@ -895,7 +895,7 @@ export function ExecutionsTab({ actionId }: { actionId: string }) {
 export function DependenciesTab({ action }: { action: TypedAction }) {
   const openConnector = useStudio((s) => s.openConnector);
   const setView = useStudio((s) => s.setView);
-  const { data: connector } = useApi<Connector>(
+  const { data: connector, loading: connLoading, error: connError } = useApi<Connector>(
     () => api.getConnector(action.connectorId),
     [action.connectorId],
   );
@@ -916,7 +916,22 @@ export function DependenciesTab({ action }: { action: TypedAction }) {
           <Icon name="connectors" size={14} aria-hidden />
           <h4 className="text-sm font-medium">Connector</h4>
         </div>
-        {connector ? (
+        {connError ? (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3">
+            <p className="er-caption text-destructive flex items-center gap-1.5">
+              <Icon name="alertFill" size={11} aria-hidden /> Connector not found
+            </p>
+            <p className="er-caption text-muted-foreground mt-1">
+              The connector{" "}
+              <code className="font-mono text-foreground">{action.connectorId}</code>{" "}
+              may have been deleted. The action is orphaned.
+            </p>
+          </div>
+        ) : connLoading ? (
+          <p className="er-caption text-muted-foreground flex items-center gap-1.5">
+            <Icon name="sync" size={12} className="er-pulse" aria-hidden /> Loading connector…
+          </p>
+        ) : connector ? (
           <div className="flex flex-wrap items-center gap-3">
             <span
               className="grid size-9 place-items-center rounded-md"

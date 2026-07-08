@@ -10,6 +10,7 @@ import type {
   PublishedTool,
   McpRegistry,
   TimeSeries,
+  SearchResults,
   DashboardStats,
   RepairProposal,
 } from "./types";
@@ -61,6 +62,9 @@ export const api = {
   monitoring: () => request<MonitoringSummary>("/api/v1/monitoring/summary"),
   /** Generic raw GET for endpoints with arbitrary response shapes (e.g. /healthz, /readyz). */
   raw: <T,>(path: string) => request<T>(path),
+  /** Global search across actions, connectors, and executions. */
+  search: (q: string) =>
+    request<SearchResults>("/api/v1/search", { params: { q } }),
 
   // ---- Connectors ----
   listConnectors: () => request<Connector[]>("/api/v1/connectors"),

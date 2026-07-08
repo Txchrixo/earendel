@@ -119,6 +119,77 @@ async def dashboard_stats(registry=Depends(get_action_registry)) -> dict:
     }
 
 
+@app.get("/api/v1/search")
+async def search_endpoint(
+    q: str,
+    registry=Depends(get_action_registry),
+) -> dict:
+    """Global search across actions, connectors, and executions.
+
+    Returns matched items grouped by type, with enough metadata for the
+    frontend to navigate to the right view.
+    """
+    from .infrastructure.database import doc_list
+    from .modules.executions.repository import list_executions
+    query = (q or "").strip().lower()
+    if not query:
+        return {"actions": [], "connectors": [], "executions": []}
+
+    actions = [
+        {
+            "id": a.id,
+            "name": a.name,
+            "signature": a.signature,
+            "description": a.description,
+            "category": a.category.value,
+            "status": a.status.value,
+            "version": a.version,
+        }
+        for a in registry.list()
+        if query in a.name.lower()
+        or query in a.signature.lower()
+        or query in a.description.lower()
+        or query in a.category.value.lower()
+    ][:10]
+
+    connectors = [
+        {
+            "id": c["id"],
+            "name": c["name"],
+            "targetApp": c.get("targetApp", ""),
+            "targetDomain": c.get("targetDomain", ""),
+            "category": c.get("category", ""),
+            "status": c.get("status", ""),
+        }
+        for c in await doc_list("connectors")
+        if query in c.get("name", "").lower()
+        or query in c.get("targetApp", "").lower()
+        or query in c.get("targetDomain", "").lower()
+        or query in c.get("category", "").lower()
+    ][:10]
+
+    exe_all = await list_executions()
+    executions = [
+        {
+            "id": e.id,
+            "actionId": e.actionId,
+            "actionName": e.actionName,
+            "status": e.status.value,
+            "adapter": e.adapter.value,
+            "caller": e.caller.value,
+            "durationMs": e.durationMs,
+        }
+        for e in exe_all
+        if query in e.actionName.lower()
+        or query in e.status.value.lower()
+        or query in e.adapter.value.lower()
+        or query in e.caller.value.lower()
+        or any(query in str(v).lower() for v in e.inputs.values())
+    ][:10]
+
+    return {"actions": actions, "connectors": connectors, "executions": executions}
+
+
 # Feature routers
 app.include_router(connectors_router, prefix="/api/v1")
 app.include_router(recordings_router, prefix="/api/v1")

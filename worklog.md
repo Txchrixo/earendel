@@ -578,3 +578,53 @@ Task: Continuous QA + backend contract-per-version snapshots + version-diff cont
    - A global search that works across actions/connectors/executions (the header search is decorative).
    - Export the monitoring timeseries as CSV from the dashboard.
 5. **Cron stability**: services stayed up throughout this round. The cron job should continue to restart via `python3 /home/z/my-project/start_services.py` if health checks fail.
+
+---
+Task ID: 13
+Agent: cron-webDevReview (round 8)
+Task: Continuous QA + version_manager contract snapshot + connector Health card + global search + CSV export + Dependencies 404 fix.
+
+## Current project status assessment
+- Services: Next.js (3000) + FastAPI (8001) + Caddy (81) all healthy, daemonized via `start_services.py`.
+- QA sweep across all 9 views: zero console errors, zero console warnings. Dashboard shows 6 connectors / 5 published actions / 10 executions / 70% success.
+- Round 7 delivered: contract-per-version snapshots, version-diff contract diff, by-adapter/by-action toggle, Dependencies tab, clickable health strip. All still working.
+- VLM (glm-4.6v) rated the dashboard 8/10, monitoring 8/10, dependencies 8/10, connector health 8/10.
+
+## Completed modifications
+1. **version_manager.bump() + rollback() contract snapshots** (`backend/app/core/versioning/version_manager.py`):
+   - `bump()` now attaches `contractSnapshot=action.contract.model_copy(deep=True)` to the new version entry, so runtime-published versions carry their contract snapshot and are diffable in the version-diff view.
+   - `rollback()` attaches the target version's contractSnapshot to the rollback entry.
+   - This closes the round-7 gap where only seed versions had snapshots.
+2. **Connector-detail Health card** (new `ConnectorHealthCard` + `HealthMetric` in `connector-detail-view.tsx`):
+   - New card between the identity/vault/quick-actions grid and the Compiled actions section. Shows: overall health badge (healthy/needs attention, computed from successRate ≥80% + canaryRate ≥80% + openRepairs=0), 4 metric tiles (Success rate %, Canary pass %, Open repairs count, Actions healthy/total), and a red-tinted "recent failures" alert listing up to 3 failed action names when failures exist.
+   - Fixed a runtime crash: the HealthMetric used `cn()` which wasn't imported in connector-detail-view.tsx → added `import { cn } from "@/lib/utils"`.
+   - Verified: Acme connector detail shows "Health · healthy", Success rate 100%, Canary pass 100%, Open repairs 0, Actions 1/1.
+3. **Working global search** (new `global-search.tsx` + backend `/api/v1/search`):
+   - Backend: new `GET /api/v1/search?q=...` endpoint searches across actions (name/signature/description/category), connectors (name/targetApp/targetDomain/category), and executions (actionName/status/adapter/caller/inputs). Returns grouped results capped at 10 per type.
+   - Frontend: new `GlobalSearch` component using shadcn Popover + Command (cmdk). Debounced 200ms search. Grouped results (Actions/Connectors/Executions) with icons, signatures, descriptions, category badges, status badges. Selecting a result navigates to the right view (openAction/openConnector/openExecution). Replaced the decorative header search input.
+   - Added `SearchResults` + `SearchActionHit` + `SearchConnectorHit` + `SearchExecutionHit` TS types + `api.search(q)` method.
+   - Verified: typed "invoice" in the header search → popover shows "Actions: downloadInvoice" + "Executions: 2 downloadInvoice runs" → clicked the action result → navigated to the action detail.
+4. **CSV export of monitoring timeseries** (new backend `GET /api/v1/monitoring/timeseries.csv`):
+   - Returns the hourly timeseries as a CSV download (`timestamp,hour,successRate,total,successes,failures`) with `Content-Disposition: attachment; filename=earendel-timeseries.csv`. Clamps hours 1..168.
+   - Verified: `curl /monitoring/timeseries.csv?hours=3` returns 4 CSV rows (header + 3 hourly points).
+5. **Dependencies tab 404 handling** (`action-detail-sections.tsx`):
+   - The DependenciesTab now handles a deleted/missing connector gracefully: shows a red-tinted "Connector not found" alert with the orphaned connector id + "The action is orphaned" message, instead of hanging on "Loading connector…" forever. Uses the `error` from `useApi`.
+   - Also added a loading spinner state with the sync icon.
+
+## Verification results
+- `bun run lint` → 0 errors, 0 warnings.
+- dev.log: clean compiles. backend.log: clean, all endpoints 200 (including new `/search` + `/monitoring/timeseries.csv`).
+- agent-browser: global search popover shows grouped results + navigates on click; connector detail Health card renders (healthy, 100%/100%/0/1-of-1); CSV endpoint returns valid CSV; Dependencies tab 404 handling in place. Zero console errors.
+- VLM rated the connector health card 8/10: "at-a-glance metrics with the healthy badge, enabling quick health assessment."
+
+## Unresolved issues / risks + next-phase recommendations
+1. **executions-sections.tsx + publishing-view.tsx still large** (~850 + ~700 lines): code-health split recommended since round 5. Still not done (focused on features each round). Should be the priority next round.
+2. **CSV export not yet wired to a frontend button**: the endpoint exists but there's no UI button to trigger the download. A "Export CSV" button on the monitoring reliability trend card would close the loop.
+3. **Search doesn't search recordings or repairs**: the `/search` endpoint covers actions/connectors/executions but not recordings or repair proposals. Could extend.
+4. **Next-phase feature priorities** (ranked):
+   - Split executions-sections.tsx + publishing-view.tsx into focused helper files (code health — long overdue).
+   - Add an "Export CSV" button on the monitoring reliability trend card → triggers `/monitoring/timeseries.csv` download.
+   - Extend search to cover recordings + repairs.
+   - Connector detail: add a "Run all canaries" button that triggers canaries for all the connector's actions.
+   - A "recent activity" feed on the dashboard (last 5 events across the system).
+5. **Cron stability**: services stayed up throughout this round. The cron job should continue to restart via `python3 /home/z/my-project/start_services.py` if health checks fail.

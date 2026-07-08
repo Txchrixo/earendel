@@ -48,6 +48,25 @@ async def timeseries_endpoint(hours: int = 24) -> dict[str, Any]:
     return await build_timeseries(hours)
 
 
+@router.get("/timeseries.csv")
+async def timeseries_csv_endpoint(hours: int = 24) -> str:
+    """CSV export of the hourly timeseries (for spreadsheet import)."""
+    from fastapi import Response
+    hours = max(1, min(hours, 168))
+    data = await build_timeseries(hours)
+    lines = ["timestamp,hour,successRate,total,successes,failures"]
+    for p in data["points"]:
+        lines.append(
+            f"{p['ts']},{p['hourLabel']},{p['successRate']},"
+            f"{p['total']},{p['successes']},{p['failures']}"
+        )
+    return Response(
+        content="\n".join(lines) + "\n",
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=earendel-timeseries.csv"},
+    )
+
+
 @router.get("/repairs")
 async def list_repairs_endpoint() -> list[dict[str, Any]]:
     """List all repair proposals."""
