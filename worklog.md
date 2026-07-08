@@ -277,3 +277,56 @@ Task: Continuous QA + styling depth + connector detail view + risk-gate modal + 
    - Toast consolidation: each view mounts its own Sonner `<Toaster />` (layout.tsx is on the do-not-modify list). Consider moving the Toaster into the AppShell so there's exactly one.
    - Empty-state illustrations: replace the gradient icon circles with small inline SVG spot illustrations for more personality.
 5. **Styling**: VLM says depth variation between sections could still improve — consider differentiating "primary" cards (er-card-raised) from "secondary" cards (flatter) more deliberately in the dashboard layout.
+
+---
+Task ID: 7
+Agent: cron-webDevReview (round 2)
+Task: Continuous QA + MCP registry import/export + execution replay with trace diff + real LLM-backed recording compilation + type fixes.
+
+## Current project status assessment
+- Services: Next.js (3000) + FastAPI (8001) + Caddy (81) all healthy, daemonized via `start_services.py`.
+- QA sweep across all 9 views: zero console errors, zero page errors. Dashboard shows 6 connectors / 5 published actions / 10 executions / 70% success. Agent flow, recorder, connector detail, risk-gate modal all still work.
+- VLM (glm-4.6v) rated the dashboard 8/10 after round 1's styling improvements.
+- Carried-over issue from round 1: PublishedTool type mismatch (`mcpDefinition` object vs string) — FIXED this round.
+
+## Completed modifications
+1. **Fixed PublishedTool type mismatch** (`src/lib/earendel/types.ts`):
+   - Added `McpToolDefinition` interface (name, description, inputSchema, outputSchema).
+   - Changed `PublishedTool.mcpDefinition` from `string` to `McpToolDefinition`.
+   - Added `McpRegistryEntry` + `McpRegistry` interfaces for the new registry endpoint.
+   - Added `api.getMcpRegistry()` to the api-client.
+2. **MCP registry import/export** (new backend endpoint + frontend tab):
+   - Backend: new `backend/app/modules/publishing/registry_service.py` — aggregates all MCP-published actions into a single server manifest (serverName, serverVersion, protocolVersion, tools[], registry[]) + ready-to-paste config snippets (Claude Desktop JSON, Cursor mcp.json, CLI curl install). New endpoint `GET /api/v1/publishing/registry`, placed before `/{action_id}` so FastAPI doesn't treat "registry" as an id.
+   - Frontend: new `RegistryTab` component in `publishing-view.tsx` — shows server manifest card (gradient icon, tool count, live badge), tool index list (numbered, mcpToolName, category badge, RiskBadge, version), Claude Desktop + Cursor config CodeBlocks with install instructions, CLI install snippet, full MCP manifest JSON. Restructured the Publishing view so the Registry tab is the default and always visible (action-specific MCP/REST/SDK/Webhook tabs are disabled until an action is selected).
+   - Verified: 6 tools indexed (downloadInvoice, trackShipment, checkClaimStatus, downloadMarketplaceReport, exportNewCandidates, fillSecurityQuestionnaire), Claude + Cursor configs render with copy buttons.
+3. **Execution replay with trace diff** (new in `executions-sections.tsx`):
+   - Added "Replay & compare" button next to the existing "Re-run" in the ExecutionDetail header.
+   - New `ReplayCompareCard` component: runs the same action with the same inputs, then renders a side-by-side comparison — delta summary chips (status unchanged/changed, adapter change, duration delta with warn threshold >200ms, trace count delta), side-by-side Original vs Replay trace timelines, side-by-side Original vs Replay outputs. Dismissable.
+   - Verified: opened an execution, clicked "Replay & compare" → card rendered with "status unchanged", "duration -900ms", "traces: 2 → 4", Original/Replay traces + outputs side-by-side. Real drift detection.
+4. **Real LLM-backed recording compilation** (backend):
+   - Upgraded `backend/app/infrastructure/llm_client.py` from a deterministic stub to a real z-ai-web-dev-sdk-backed client. Calls the `z-ai chat` CLI via `asyncio.create_subprocess_exec`, parses the JSON response, and falls back to the deterministic keyword stub on any failure (network/CLI/parse) so the product never breaks.
+   - Upgraded `backend/app/core/contracts/schema_compiler.py` with `build_contract_via_llm()` — sends the captured steps (type, description, selector, value) + workflow name to the LLM with a strict JSON-only system prompt, parses the inferred inputs/outputs/preconditions/postconditions, builds an ActionContract. Lenient JSON parser strips markdown fences + extracts the first `{...}` block. Falls back to the deterministic template on any error.
+   - Wired the LLMClient into the recordings compile endpoint: `POST /api/v1/recordings/:id/compile` now injects `get_llm_client()` via FastAPI Depends.
+   - Added `get_llm_client` singleton to `api/deps.py`.
+   - Verified end-to-end: created a recording for the Acme connector + "downloadInvoice" workflow, POSTed /compile → the real LLM responded in 4s and inferred `inputs: [username, password, invoiceId]` and `outputs: [pdfFile]` from the captured login + search steps. Genuine LLM compilation, not a stub.
+5. **Backend response shape alignment**: the `/recordings/:id/compile` endpoint now returns `{action: {...}}` (was returning the action directly). The frontend `api.compileRecording` already expected `{action: TypedAction}` — so this fix aligns the backend with the existing frontend contract.
+
+## Verification results
+- `bun run lint` → 0 errors, 0 warnings.
+- dev.log: clean compiles.
+- backend.log: clean startup, all endpoints 200 (including the new `/publishing/registry` and the LLM-backed `/recordings/:id/compile`).
+- agent-browser: Publishing Registry tab renders 6-tool manifest + Claude/Cursor configs; Execution replay comparison card renders side-by-side traces + outputs with delta chips. Zero console errors, zero page errors.
+- VLM rated the registry view 8/10.
+
+## Unresolved issues / risks + next-phase recommendations
+1. **LLM latency**: the real LLM-backed compilation takes ~4s (CLI subprocess + network). Acceptable for compile (one-shot) but would be too slow for repair proposals if we wire the LLM there too. The repair proposer still uses the deterministic stub — consider wiring LLM there with a 3s timeout + fallback.
+2. **LLM availability**: the z-ai CLI must be on PATH (`/usr/local/bin/z-ai`). If it's missing or the network is down, compilation silently falls back to the deterministic template. The fallback is logged at WARNING level. Consider surfacing "compiled via LLM" vs "compiled via fallback" in the action's version changelog so users know which path produced the contract.
+3. **Section-helper files keep growing** (publishing-view now ~700 lines with the RegistryTab, executions-sections ~650 with ReplayCompareCard). Still acceptable per the round-1 precedent, but the next round should consider splitting publishing-view into `publishing-sections.tsx` and executions-sections into `executions-replay.tsx`.
+4. **Multiple Sonner Toaster instances**: each view still mounts its own `<Toaster />`. Safe (only one view mounted at a time) but not ideal. Moving the Toaster into AppShell would consolidate. layout.tsx remains on the do-not-modify list, but AppShell is fair game.
+5. **Next-phase feature priorities** (ranked):
+   - Repair approval flow with selector diffing: when approving a repair in the Monitoring view, show a visual diff of the old failed selector vs the new candidate (highlight what changed in the DOM path) + the LLM's reasoning.
+   - Connector detail "Record workflow" should pre-select that connector in the Recorder view (currently just navigates).
+   - Dashboard "depth variation" (VLM round-1 note): differentiate primary cards (er-card-raised) from secondary cards more deliberately.
+   - Empty-state spot illustrations (inline SVG) for more personality.
+   - A "/healthz" + "/readyz" distinction for the backend (currently a single /health).
+6. **Cron job stability**: the cron webDevReview runs every 15 min. If services are down at trigger time, the agent should restart via `python3 /home/z/my-project/start_services.py` before doing QA. This is documented but worth automating as a health-check preflight.

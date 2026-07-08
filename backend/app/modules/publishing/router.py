@@ -7,8 +7,21 @@ from fastapi import APIRouter, Depends
 
 from ...api.deps import get_action_registry
 from . import service
+from .registry_service import build_registry
 
 router = APIRouter(prefix="/publishing", tags=["publishing"])
+
+
+@router.get("/registry")
+async def get_mcp_registry_endpoint(
+    registry=Depends(get_action_registry),
+) -> dict[str, Any]:
+    """Return the full MCP server registry — all published actions as one manifest.
+
+    Includes ready-to-paste config snippets for Claude Desktop, Cursor, and CLI.
+    Placed before /{action_id} so FastAPI doesn't treat 'registry' as an id.
+    """
+    return await build_registry(registry)
 
 
 @router.get("/{action_id}")

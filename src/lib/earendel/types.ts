@@ -185,14 +185,49 @@ export interface MonitoringSummary {
   mttrHours: number;
 }
 
+export interface McpToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: {
+    type: "object";
+    properties: Record<string, unknown>;
+    required: string[];
+  };
+  outputSchema?: {
+    type: "object";
+    properties: Record<string, unknown>;
+  };
+}
+
 export interface PublishedTool {
   actionId: string;
   actionName: string;
   mcpToolName: string;
   restEndpoint: string;
   sdkSnippet: string;
-  mcpDefinition: string;
+  mcpDefinition: McpToolDefinition;
   webhookUrl: string;
+}
+
+export interface McpRegistryEntry {
+  actionId: string;
+  name: string;
+  description: string;
+  category: string;
+  version: string;
+  riskLevel: string;
+  mcpToolName: string;
+}
+
+export interface McpRegistry {
+  serverName: string;
+  serverVersion: string;
+  protocolVersion: string;
+  tools: McpToolDefinition[];
+  registry: McpRegistryEntry[];
+  claudeConfig: string;
+  cursorConfig: string;
+  curlInstall: string;
 }
 
 export interface DashboardStats {

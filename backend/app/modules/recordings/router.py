@@ -6,7 +6,8 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from ...api.deps import get_action_registry
+from ...api.deps import get_action_registry, get_llm_client
+from ...infrastructure.llm_client import LLMClient
 from . import service
 
 router = APIRouter(prefix="/recordings", tags=["recordings"])
@@ -41,8 +42,10 @@ async def create_recording_endpoint(body: CreateRecordingBody) -> dict[str, Any]
 
 @router.post("/{recording_id}/compile")
 async def compile_recording_endpoint(
-    recording_id: str, registry=Depends(get_action_registry)
+    recording_id: str,
+    registry=Depends(get_action_registry),
+    llm: LLMClient = Depends(get_llm_client),
 ) -> dict[str, Any]:
-    """Compile a recording into a TypedAction and register it."""
-    action = await service.compile(recording_id, registry)
-    return action.model_dump(mode="json")
+    """Compile a recording into a TypedAction via the LLM and register it."""
+    action = await service.compile(recording_id, registry, llm)
+    return {"action": action.model_dump(mode="json")}

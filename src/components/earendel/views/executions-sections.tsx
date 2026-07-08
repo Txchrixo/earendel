@@ -363,6 +363,8 @@ export function ExecutionDetail() {
     { enabled: !!executionId },
   );
   const [rerunning, setRerunning] = React.useState(false);
+  const [replay, setReplay] = React.useState<Execution | null>(null);
+  const [replaying, setReplaying] = React.useState(false);
 
   const rerun = async () => {
     if (!data) return;
@@ -375,6 +377,23 @@ export function ExecutionDetail() {
       toast.error("Re-run failed", { description: "Backend unreachable." });
     } finally {
       setRerunning(false);
+    }
+  };
+
+  const replayCompare = async () => {
+    if (!data) return;
+    setReplaying(true);
+    setReplay(null);
+    try {
+      const result = await api.runAction(data.actionId, data.inputs, "manual");
+      setReplay(result);
+      toast.success("Replay complete", {
+        description: `Status: ${result.status} · ${result.durationMs}ms`,
+      });
+    } catch {
+      toast.error("Replay failed", { description: "Backend unreachable." });
+    } finally {
+      setReplaying(false);
     }
   };
 
@@ -432,6 +451,15 @@ export function ExecutionDetail() {
           </div>
           <div className="flex items-center gap-2">
             <StatusDot status={data.status} />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={replayCompare}
+              disabled={replaying}
+            >
+              <Icon name="diff" size={12} aria-hidden />
+              {replaying ? "Replaying…" : "Replay & compare"}
+            </Button>
             <Button size="sm" variant="outline" onClick={rerun} disabled={rerunning}>
               <Icon name="sync" size={12} aria-hidden />
               {rerunning ? "Re-running…" : "Re-run"}
@@ -439,6 +467,10 @@ export function ExecutionDetail() {
           </div>
         </div>
       </Card>
+
+      {replay && (
+        <ReplayCompareCard original={data} replay={replay} onClose={() => setReplay(null)} />
+      )}
 
       {data.errorMessage && (
         <Card className="gap-2 border-destructive/40 bg-destructive/10 p-4">
@@ -500,5 +532,116 @@ export function ExecutionDetail() {
         )}
       </Card>
     </motion.div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* ReplayCompareCard — side-by-side trace diff after replay           */
+/* ------------------------------------------------------------------ */
+
+function ReplayCompareCard({
+  original,
+  replay,
+  onClose,
+}: {
+  original: Execution;
+  replay: Execution;
+  onClose: () => void;
+}) {
+  const statusChanged = original.status !== replay.status;
+  const durationDelta = replay.durationMs - original.durationMs;
+  const adapterChanged = original.adapter !== replay.adapter;
+  const tracesChanged = original.traces.length !== replay.traces.length;
+
+  return (
+    <Card className="er-card-raised gap-3 p-5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span
+            className="grid size-8 place-items-center rounded-md"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(107,88,118,0.40), rgba(122,133,72,0.18))",
+              color: "#E8E0D4",
+            }}
+          >
+            <Icon name="diff" size={16} aria-hidden />
+          </span>
+          <div>
+            <h4 className="text-sm font-medium">Replay comparison</h4>
+            <p className="er-caption text-muted-foreground">
+              Same inputs, run just now — spot drift at a glance.
+            </p>
+          </div>
+        </div>
+        <Button size="sm" variant="ghost" onClick={onClose} aria-label="Dismiss comparison">
+          <Icon name="x" size={14} aria-hidden />
+        </Button>
+      </div>
+
+      {/* Delta summary chips */}
+      <div className="flex flex-wrap gap-2">
+        {statusChanged ? (
+          <Badge className="er-pill-warn">
+            <Icon name="alert" size={10} aria-hidden /> status: {original.status} → {replay.status}
+          </Badge>
+        ) : (
+          <Badge className="er-pill-success">
+            <Icon name="check" size={10} aria-hidden /> status unchanged
+          </Badge>
+        )}
+        {adapterChanged && (
+          <Badge className="er-pill-warn">
+            <Icon name="arrowRight" size={10} aria-hidden /> adapter: {original.adapter} → {replay.adapter}
+          </Badge>
+        )}
+        <Badge
+          className={
+            Math.abs(durationDelta) > 200 ? "er-pill-warn" : "er-pill-neutral"
+          }
+        >
+          <Icon name="clock" size={10} aria-hidden /> duration {durationDelta >= 0 ? "+" : ""}
+          {durationDelta}ms
+        </Badge>
+        {tracesChanged && (
+          <Badge className="er-pill-warn">
+            <Icon name="graph" size={10} aria-hidden /> traces: {original.traces.length} → {replay.traces.length}
+          </Badge>
+        )}
+      </div>
+
+      {/* Side-by-side traces */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div>
+          <p className="er-caption text-muted-foreground mb-2 flex items-center gap-1.5">
+            <Icon name="history" size={12} aria-hidden /> Original ·{" "}
+            {new Date(original.startedAt).toLocaleTimeString()}
+          </p>
+          <TraceTimeline traces={original.traces} />
+        </div>
+        <div>
+          <p className="er-caption text-muted-foreground mb-2 flex items-center gap-1.5">
+            <Icon name="sync" size={12} aria-hidden /> Replay · now
+          </p>
+          <TraceTimeline traces={replay.traces} />
+        </div>
+      </div>
+
+      {/* Outputs diff */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <KeyValueCard
+          title="Original outputs"
+          icon="arrowRight"
+          payload={original.outputs}
+          language="json"
+        />
+        <KeyValueCard
+          title="Replay outputs"
+          icon="arrowRight"
+          payload={replay.outputs}
+          language="json"
+        />
+      </div>
+    </Card>
   );
 }

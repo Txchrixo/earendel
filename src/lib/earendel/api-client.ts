@@ -8,6 +8,7 @@ import type {
   Execution,
   MonitoringSummary,
   PublishedTool,
+  McpRegistry,
   DashboardStats,
   RepairProposal,
 } from "./types";
@@ -129,6 +130,8 @@ export const api = {
   // ---- Publishing ----
   getPublishedTool: (actionId: string) =>
     request<PublishedTool>(`/api/v1/publishing/${actionId}`),
+  getMcpRegistry: () =>
+    request<McpRegistry>("/api/v1/publishing/registry"),
 };
 
 export { ApiError };

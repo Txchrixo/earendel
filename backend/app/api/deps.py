@@ -6,6 +6,7 @@ from functools import lru_cache
 from ..core.engine.adapter_registry import default_registry
 from ..core.engine.orchestrator import Orchestrator
 from ..core.registry.action_registry import ActionRegistry
+from ..infrastructure.llm_client import LLMClient
 from ..infrastructure.telemetry import TraceCollector
 
 
@@ -29,3 +30,9 @@ def get_orchestrator() -> Orchestrator:
         action_registry=get_action_registry(),
         telemetry=TraceCollector(),
     )
+
+
+@lru_cache
+def get_llm_client() -> LLMClient:
+    """Return the process-wide LLMClient singleton (real z-ai CLI + fallback)."""
+    return LLMClient()
