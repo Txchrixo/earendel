@@ -104,7 +104,6 @@ jobs:
   e2e-tests:
     name: E2E Tests (3)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -167,7 +166,6 @@ jobs:
   build:
     name: Build Check
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -205,3 +203,4 @@ jobs:
           BACKEND_SECRET: "ci-build-secret"
           GOOGLE_CLIENT_ID: "test"
           GOOGLE_CLIENT_SECRET: "test"
+          STRIPE_SECRET: ""
