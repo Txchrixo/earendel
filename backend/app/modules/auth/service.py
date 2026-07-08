@@ -1,15 +1,12 @@
-"""Auth — service: session, register, login (demo-grade, document DB)."""
+"""Auth — service: session, register, login (demo-grade, Prisma User table)."""
 from __future__ import annotations
 
 import hashlib
-import os
+from datetime import datetime
 from typing import Any
 
-from ...infrastructure.database import doc_get, doc_list, doc_put
+from ...infrastructure.prisma_repositories import user_get_by_email, user_put
 from ...shared.ids import new_id
-
-
-_COLLECTION = "users"
 
 
 def _hash_password(password: str) -> str:
@@ -30,30 +27,28 @@ async def current_session() -> dict[str, Any]:
 async def register(email: str, name: str, password: str) -> dict[str, Any] | None:
     """Register a new user. Returns None if email already exists."""
     email = email.strip().lower()
-    # Check for existing user.
-    existing = await doc_list(_COLLECTION)
-    for u in existing:
-        if u.get("email", "").lower() == email:
-            return None
+    # Check for existing user by email (Prisma User.email is unique).
+    existing = await user_get_by_email(email)
+    if existing is not None:
+        return None
     user = {
         "id": new_id("usr"),
         "email": email,
         "name": name or email.split("@")[0],
         "passwordHash": _hash_password(password),
         "role": "owner",
-        "createdAt": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        "createdAt": datetime.utcnow().isoformat() + "Z",
     }
-    await doc_put(_COLLECTION, user["id"], user)
+    await user_put(user)
     return {"id": user["id"], "email": user["email"], "name": user["name"]}
 
 
 async def login(email: str, password: str) -> dict[str, Any] | None:
     """Log in an existing user. Returns None if credentials are invalid."""
     email = email.strip().lower()
-    existing = await doc_list(_COLLECTION)
-    for u in existing:
-        if u.get("email", "").lower() == email:
-            if u.get("passwordHash") == _hash_password(password):
-                return {"id": u["id"], "email": u["email"], "name": u.get("name", u["email"])}
-            return None
+    u = await user_get_by_email(email)
+    if u is None:
+        return None
+    if u.get("passwordHash") == _hash_password(password):
+        return {"id": u["id"], "email": u["email"], "name": u.get("name") or u["email"]}
     return None

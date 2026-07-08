@@ -8,7 +8,7 @@ A human can then approve (with outputs) or reject the execution via the
 monitoring UI. If approved, the execution is marked as success with the
 human-provided outputs.
 
-The review queue is stored in the document DB (collection: "reviews").
+The review queue is stored in the Prisma Review table.
 """
 from __future__ import annotations
 
@@ -17,12 +17,9 @@ from typing import Any
 
 from ..core.domain.entities import TraceEvent, TypedAction
 from ..core.domain.enums import AdapterType, ExecutionStatus
-from ..infrastructure.database import doc_put
+from ..infrastructure.prisma_repositories import review_put
 from ..shared.ids import new_id
 from .base import AdapterResult, ExecutionContext, ExecutionAdapter
-
-
-_COLLECTION = "reviews"
 
 
 class HumanAdapter(ExecutionAdapter):
@@ -67,7 +64,7 @@ class HumanAdapter(ExecutionAdapter):
         }
 
         try:
-            await doc_put(_COLLECTION, review_id, review)
+            await review_put(review)
         except Exception:
             pass  # Non-blocking — the review prompt is still in the execution traces.
 

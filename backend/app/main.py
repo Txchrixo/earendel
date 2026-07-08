@@ -14,6 +14,10 @@ from fastapi.responses import JSONResponse
 from .api.deps import get_action_registry, get_orchestrator
 from .config import settings
 from .infrastructure.database import dispose_engine, init_engine
+from .infrastructure.prisma_repositories import (
+    connector_list, dispose_prisma_engine, init_prisma_engine,
+    recording_list, repair_list,
+)
 from .modules.actions.router import router as actions_router
 from .modules.auth.router import router as auth_router
 from .modules.connectors.router import router as connectors_router
@@ -114,8 +118,14 @@ async def auth_middleware(request: Request, call_next):
 
 @app.on_event("startup")
 async def _startup() -> None:
-    """Initialise DB + seed if needed; log seeded action ids for the frontend."""
+    """Initialise DBs + seed if needed; log seeded action ids for the frontend.
+
+    Both the legacy document store (`init_engine`) and the Prisma-backed
+    engine (`init_prisma_engine`) are initialised — the legacy one is kept
+    for backward compatibility while modules finish migrating.
+    """
     await init_engine()
+    await init_prisma_engine()
     registry = get_action_registry()
     await registry.load()
     if settings.seed_on_startup and not registry.list():
@@ -128,7 +138,8 @@ async def _startup() -> None:
 
 @app.on_event("shutdown")
 async def _shutdown() -> None:
-    """Dispose the DB engine on shutdown."""
+    """Dispose both DB engines on shutdown."""
+    await dispose_prisma_engine()
     await dispose_engine()
 
 
@@ -148,9 +159,8 @@ async def healthz() -> dict:
 @app.get("/api/v1/readyz")
 async def readyz(registry=Depends(get_action_registry)) -> dict:
     """Readiness probe — checks the DB + action registry are initialised."""
-    from .infrastructure.database import doc_list
     try:
-        connectors = await doc_list("connectors")
+        connectors = await connector_list()
         actions = registry.list()
         return {
             "status": "ready",
@@ -173,12 +183,11 @@ async def readyz(registry=Depends(get_action_registry)) -> dict:
 @app.get("/api/v1/dashboard/stats")
 async def dashboard_stats(registry=Depends(get_action_registry)) -> dict:
     """Studio dashboard aggregates — shape matches the frontend DashboardStats type."""
-    from .infrastructure.database import doc_list
     from .modules.monitoring.service import summary
 
     mon = await summary(registry)
-    connectors = await doc_list("connectors")
-    recordings = await doc_list("recordings")
+    connectors = await connector_list()
+    recordings = await recording_list()
     actions = registry.list()
     published = [a for a in actions if a.status.value == "published"]
 
@@ -203,7 +212,6 @@ async def search_endpoint(
     Returns matched items grouped by type, with enough metadata for the
     frontend to navigate to the right view.
     """
-    from .infrastructure.database import doc_list
     from .modules.executions.repository import list_executions
     query = (q or "").strip().lower()
     if not query:
@@ -236,7 +244,7 @@ async def search_endpoint(
             "category": c.get("category", ""),
             "status": c.get("status", ""),
         }
-        for c in await doc_list("connectors")
+        for c in await connector_list()
         if query in c.get("name", "").lower()
         or query in c.get("targetApp", "").lower()
         or query in c.get("targetDomain", "").lower()
@@ -270,7 +278,7 @@ async def search_endpoint(
             "status": r.get("status", ""),
             "steps": len(r.get("steps", [])),
         }
-        for r in await doc_list("recordings")
+        for r in await recording_list()
         if query in r.get("name", "").lower()
         or query in r.get("status", "").lower()
     ][:10]
@@ -285,7 +293,7 @@ async def search_endpoint(
             "candidateSelector": r.get("candidateSelector", ""),
             "reason": r.get("reason", ""),
         }
-        for r in await doc_list("repairs")
+        for r in await repair_list()
         if query in r.get("status", "").lower()
         or query in r.get("reason", "").lower()
         or query in r.get("candidateSelector", "").lower()
@@ -307,7 +315,6 @@ async def dashboard_activity_endpoint(
 ) -> dict:
     """Recent activity feed — last N events across the system (executions,
     repairs, recordings, version bumps) sorted by time, most recent first."""
-    from .infrastructure.database import doc_list
     from .modules.executions.repository import list_executions
     from datetime import datetime
 
@@ -327,7 +334,7 @@ async def dashboard_activity_endpoint(
         })
 
     # Repairs
-    for r in await doc_list("repairs"):
+    for r in await repair_list():
         ts = r.get("detectedAt", now.isoformat())
         if isinstance(ts, str):
             ts_parsed = ts
@@ -344,7 +351,7 @@ async def dashboard_activity_endpoint(
         })
 
     # Recordings
-    for r in await doc_list("recordings"):
+    for r in await recording_list():
         ts = r.get("createdAt", now.isoformat())
         if isinstance(ts, str):
             ts_parsed = ts

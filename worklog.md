@@ -1155,3 +1155,51 @@ Stage Summary:
 - Pass rate: 100% (123/123). Duration ~19s (includes real Stripe/Open-Meteo/JSONPlaceholder HTTP calls).
 - No source code modified — tests + config only. Two test-only fixes applied (assertion scoping + error-type expectation).
 - Notable environment observations: Open-Meteo API is rate-limited (429 daily limit) — adapter test tolerates both 200 + 429. Stripe test key (from .env) returns 200 with empty data array — adapter test verifies the real URL is hit via traces. Test DB isolated to earendel-test.db (reset per test) so the dev DB is never mutated.
+
+---
+Task ID: PRISMA-MIGRATE
+Agent: prisma-migrator
+Task: Migrate all backend modules from document store to Prisma repositories.
+
+Work Log:
+- Read worklog (top 20 lines), prisma_repositories.py, and the old database.py to map the migration surface.
+- Audited every importer of `infrastructure.database` (connectors/recordings/executions/monitoring/actions/auth repos, action_registry, seed, main, human_adapter, conftest).
+- Extended `infrastructure/prisma_repositories.py`:
+  * `_PRISMA_DB_PATH` now overridable via `EARENDEL_PRISMA_DB` env var (so tests can isolate).
+  * `init_prisma_engine()` now idempotently runs `Base.metadata.create_all` — lets tests spin up a fresh schema without Prisma CLI.
+  * Added `UserModel` + `user_put` / `user_get_by_email` / `user_list` for the auth module.
+  * Added `recording_delete` (used by the recordings module repository).
+  * Changed `_dt_to_iso` to drop the trailing `Z` so Pydantic round-trips to timezone-naive datetimes — matches the old doc-store semantics and avoids `TypeError: can't compare offset-naive and offset-aware datetimes` in monitoring/timeseries code that compares against `datetime.utcnow()`.
+- Rewrote module repositories to call Prisma repos and rehydrate Pydantic via `model_validate`:
+  * `modules/connectors/repository.py` → connector_put/get/list/delete.
+  * `modules/recordings/repository.py` → recording_put/get/list/delete.
+  * `modules/executions/repository.py` → execution_put/get/list (native actionId filter).
+  * `modules/monitoring/repository.py` → repair_put/get/list + execution_list (replaces the old `doc_list("repairs")` / `doc_list("executions")`).
+- Updated `core/registry/action_registry.py`: `load()` calls `action_list()` and validates each row; `put()` calls `action_put(action.model_dump(mode="json"))`; `remove()` calls `action_delete`.
+- Updated `modules/auth/service.py`: register/login now use `user_get_by_email` + `user_put` (Prisma User table) instead of `doc_list("users")`/`doc_put("users",...)`.
+- Updated `adapters/human_adapter.py`: review queue now persisted via `review_put` instead of `doc_put("reviews",...)`.
+- Updated `seed.py`: removed `doc_list`/`doc_put` imports; the two repair proposals now go through `repair_put`.
+- Updated `app/main.py`:
+  * Startup calls `init_prisma_engine()` alongside `init_engine()` (legacy kept for backward compat).
+  * Shutdown calls `dispose_prisma_engine()` before `dispose_engine()`.
+  * `readyz`, `dashboard_stats`, `search`, and `dashboard_activity` endpoints now use `connector_list()`, `recording_list()`, `repair_list()` instead of `doc_list(...)`.
+- Updated `tests/conftest.py`: added `EARENDEL_PRISMA_DB` env var pointing at a dedicated `earendel-prisma-test.db` (reset per test), `dispose_prisma_engine()` is called before re-init to drop the cached engine, and `init_prisma_engine()` is awaited in `seeded_db`.
+- Verified: `python3 -c "from app.main import app"` → Import OK; `bun run lint` → exit 0 (clean); `python3 -m pytest tests/` → 123 passed, 0 failed.
+
+Stage Summary:
+- Files modified (production):
+  - backend/app/infrastructure/prisma_repositories.py (env-var DB path, create_all on init, UserModel + user_put/get_by_email/list, recording_delete, naive datetime ISO format).
+  - backend/app/core/registry/action_registry.py
+  - backend/app/adapters/human_adapter.py
+  - backend/app/modules/connectors/repository.py
+  - backend/app/modules/recordings/repository.py
+  - backend/app/modules/executions/repository.py
+  - backend/app/modules/monitoring/repository.py
+  - backend/app/modules/auth/service.py
+  - backend/app/seed.py
+  - backend/app/main.py
+- Files modified (tests):
+  - backend/tests/conftest.py
+- Files left untouched (as instructed): backend/app/infrastructure/database.py — kept for backward compat / any external consumers; no production module imports it after this migration.
+- Test results: 123/123 passing (~5s). Lint: clean. Import: OK.
+- Known follow-ups: the legacy `init_engine`/`dispose_engine` are still called from main.py startup/shutdown and conftest.py — they can be removed in a later cleanup PR once we confirm no external test or script depends on the document store.

@@ -2,7 +2,7 @@
 
 Creates 3 connectors, 2 recordings, 3 published typed actions, ~6 executions,
 2 repair proposals, and a canary test per action. Re-running is a no-op once
-connectors exist in the doc store.
+connectors exist in the Prisma DB.
 """
 from __future__ import annotations
 
@@ -19,14 +19,12 @@ from .core.domain.enums import (
 )
 from .core.domain.value_objects import FieldSchema
 from .core.domain.entities import ActionContract
-from .infrastructure.database import doc_list, doc_put
+from .infrastructure.prisma_repositories import repair_put
 from .modules.connectors.service import create_connector, fetch_all as fetch_connectors
 from .modules.recordings.repository import put_recording
 from .modules.recordings.simulator import simulate_recording
 from .modules.executions.repository import put_execution
 from .shared.ids import new_id
-
-_COLLECTION_REPAIRS = "repairs"
 
 
 def _contract_invoice() -> ActionContract:
@@ -252,7 +250,7 @@ async def _persist_execution(
 
 
 async def run(action_registry) -> dict[str, str]:
-    """Seed the doc store; idempotent. Returns seeded action ids."""
+    """Seed the Prisma DB; idempotent. Returns seeded action ids."""
     existing = await fetch_connectors()
     if existing:
         # Already seeded — return the existing action ids for the frontend.
@@ -478,8 +476,8 @@ async def run(action_registry) -> dict[str, str]:
         confidence=0.91,
         reason="repaired after first canary failure; auto-applied by healer",
         status=RepairStatus.auto_applied, detectedAt=datetime.utcnow() - timedelta(days=1))
-    await doc_put(_COLLECTION_REPAIRS, rep1.id, rep1.model_dump(mode="json"))
-    await doc_put(_COLLECTION_REPAIRS, rep2.id, rep2.model_dump(mode="json"))
+    await repair_put(rep1.model_dump(mode="json"))
+    await repair_put(rep2.model_dump(mode="json"))
 
     return {
         invoice_action.name: invoice_action.id,

@@ -10,7 +10,9 @@ document store (doc_put/doc_get/doc_list).
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import Column, DateTime, Integer, String, Float, Boolean, Text, select, and_
@@ -22,7 +24,13 @@ from ..config import DB_PATH
 
 # The Prisma SQLite DB is at db/custom.db (project root).
 # The backend's own earendel.db is for the old document store (being phased out).
-_PRISMA_DB_PATH = DB_PATH.parent.parent / "db" / "custom.db"
+# Allow override via env var so tests can point at an isolated test DB.
+_PRISMA_DB_PATH = Path(
+    os.environ.get(
+        "EARENDEL_PRISMA_DB",
+        str(DB_PATH.parent.parent / "db" / "custom.db"),
+    )
+)
 
 _engine = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
@@ -147,13 +155,35 @@ class ReviewModel(Base):
     createdAt = Column(DateTime, default=datetime.utcnow)
 
 
+class UserModel(Base):
+    __tablename__ = "User"
+    id = Column(String, primary_key=True)
+    email = Column(String, nullable=False, unique=True)
+    name = Column(String, nullable=True)
+    image = Column(String, nullable=True)
+    emailVerified = Column(DateTime, nullable=True)
+    passwordHash = Column(String, nullable=True)
+    role = Column(String, default="member")
+    createdAt = Column(DateTime, default=datetime.utcnow)
+    updatedAt = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # ---- Engine init ----
 
 async def init_prisma_engine() -> None:
+    """Initialise the SQLAlchemy async engine bound to the Prisma SQLite DB.
+
+    Idempotently creates any missing tables (Base.metadata.create_all is a
+    no-op for tables that already exist). In production, Prisma owns the
+    schema; in tests, this creates the schema from the mirrored models.
+    """
     global _engine, _sessionmaker
     if _engine is not None:
         return
+    _PRISMA_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     _engine = create_async_engine(f"sqlite+aiosqlite:///{_PRISMA_DB_PATH}", echo=False)
+    async with _engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
 
 
@@ -188,9 +218,16 @@ def _json_loads(s: str | None, default: Any = None) -> Any:
 
 
 def _dt_to_iso(dt: datetime | None) -> str | None:
+    """Convert a SQLAlchemy datetime cell to an ISO string.
+
+    The trailing ``Z`` is intentionally NOT appended so that Pydantic parses
+    the value back into a timezone-naive ``datetime`` — this matches the old
+    document store behaviour and lets downstream code compare against
+    ``datetime.utcnow()`` without mixing aware/naive datetimes.
+    """
     if dt is None:
         return None
-    return dt.isoformat() + "Z"
+    return dt.isoformat()
 
 
 # ---- Connector repository ----
@@ -607,4 +644,76 @@ def _review_to_dict(row: ReviewModel) -> dict:
         "outputs": _json_loads(row.outputs) if row.outputs else None,
         "rejectReason": row.rejectReason,
         "createdAt": _dt_to_iso(row.createdAt),
+    }
+
+
+# ---- Recording delete (the only missing CRUD op used by modules) ----
+
+async def recording_delete(recording_id: str) -> bool:
+    async with prisma_session() as s:
+        row = await s.get(RecordingModel, recording_id)
+        if row is None:
+            return False
+        await s.delete(row)
+        await s.commit()
+        return True
+
+
+# ---- User repository (auth) ----
+
+async def user_put(data: dict) -> dict:
+    """Insert or update a user row by id (email is unique)."""
+    async with prisma_session() as s:
+        existing = await s.get(UserModel, data["id"])
+        fields = {
+            "email": data["email"],
+            "name": data.get("name"),
+            "passwordHash": data.get("passwordHash"),
+            "role": data.get("role", "member"),
+            "image": data.get("image"),
+            "emailVerified": data.get("emailVerified"),
+            "updatedAt": datetime.utcnow(),
+        }
+        if isinstance(fields.get("emailVerified"), str):
+            fields["emailVerified"] = datetime.fromisoformat(
+                fields["emailVerified"].rstrip("Z"))
+        if existing is None:
+            fields["id"] = data["id"]
+            fields["createdAt"] = datetime.utcnow()
+            s.add(UserModel(**fields))
+        else:
+            for k, v in fields.items():
+                setattr(existing, k, v)
+        await s.commit()
+    return data
+
+
+async def user_get_by_email(email: str) -> dict | None:
+    """Fetch a user by email (case-sensitive — callers normalise case)."""
+    async with prisma_session() as s:
+        result = await s.execute(
+            select(UserModel).where(UserModel.email == email))
+        row = result.scalars().first()
+        if row is None:
+            return None
+        return _user_to_dict(row)
+
+
+async def user_list() -> list[dict]:
+    async with prisma_session() as s:
+        result = await s.execute(select(UserModel).order_by(UserModel.createdAt))
+        return [_user_to_dict(r) for r in result.scalars()]
+
+
+def _user_to_dict(row: UserModel) -> dict:
+    return {
+        "id": row.id,
+        "email": row.email,
+        "name": row.name,
+        "image": row.image,
+        "emailVerified": _dt_to_iso(row.emailVerified),
+        "passwordHash": row.passwordHash,
+        "role": row.role,
+        "createdAt": _dt_to_iso(row.createdAt),
+        "updatedAt": _dt_to_iso(row.updatedAt),
     }

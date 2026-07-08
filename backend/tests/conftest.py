@@ -26,6 +26,10 @@ _TEST_DB = _BACKEND_ROOT / "earendel-test.db"
 os.environ.setdefault(
     "EARENDEL_DATABASE_URL", f"sqlite+aiosqlite:///{_TEST_DB}"
 )
+# Dedicated Prisma test DB — isolated from the production custom.db so the
+# suite can reset it freely. The schema is created on init by SQLAlchemy.
+_TEST_PRISMA_DB = _BACKEND_ROOT / "earendel-prisma-test.db"
+os.environ.setdefault("EARENDEL_PRISMA_DB", str(_TEST_PRISMA_DB))
 # Make the backend package importable.
 sys.path.insert(0, str(_BACKEND_ROOT))
 
@@ -38,6 +42,9 @@ from app.config import settings  # noqa: E402  — ensures settings load test en
 from app.main import BACKEND_SECRET, app  # noqa: E402
 from app.api.deps import get_action_registry  # noqa: E402
 from app.infrastructure.database import dispose_engine, init_engine  # noqa: E402
+from app.infrastructure.prisma_repositories import (  # noqa: E402
+    dispose_prisma_engine, init_prisma_engine,
+)
 from app.seed import run as seed_run  # noqa: E402
 
 from app.adapters.base import ExecutionContext  # noqa: E402
@@ -99,13 +106,18 @@ def auth_headers(auth_token: str) -> dict[str, str]:
 @pytest_asyncio.fixture
 async def seeded_db() -> AsyncIterator[None]:
     """Initialise the test DB engine and seed demo data once per test."""
-    # Reset the test DB file so each test session starts clean.
-    if _TEST_DB.exists():
-        try:
-            _TEST_DB.unlink()
-        except OSError:
-            pass
+    # Reset both test DB files so each test session starts clean.
+    for p in (_TEST_DB, _TEST_PRISMA_DB):
+        if p.exists():
+            try:
+                p.unlink()
+            except OSError:
+                pass
+    # The prisma engine caches _engine at module level; force a fresh init
+    # after deleting the test DB file by disposing first.
+    await dispose_prisma_engine()
     await init_engine()
+    await init_prisma_engine()
     registry = get_action_registry()
     # The ActionRegistry is an @lru_cache singleton — clear its in-memory
     # index so re-seeding from the fresh DB works.
@@ -114,6 +126,7 @@ async def seeded_db() -> AsyncIterator[None]:
     if not registry.list():
         await seed_run(registry)
     yield
+    await dispose_prisma_engine()
     await dispose_engine()
 
 
