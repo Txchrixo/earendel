@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 test("landing page renders correctly", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("h1")).toContainText(/Record workflows/i, { timeout: 15000 });
-  await expect(page.getByRole("button", { name: /get started free/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /get started free/i }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: /try the demo/i })).toBeVisible();
 });
 
