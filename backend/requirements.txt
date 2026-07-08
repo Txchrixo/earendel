@@ -1,0 +1,9 @@
+# Earendel backend dependencies
+fastapi==0.128.0
+uvicorn[standard]==0.44.0
+pydantic==2.12.5
+pydantic-settings==2.14.2
+sqlalchemy==2.0.36
+aiosqlite==0.20.0
+httpx==0.28.1
+python-multipart==0.0.20

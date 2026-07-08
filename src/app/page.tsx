@@ -1,0 +1,47 @@
+"use client";
+
+import { AppShell } from "@/components/earendel/app-shell";
+import { useStudio } from "@/lib/earendel/store";
+import { DashboardView } from "@/components/earendel/views/dashboard-view";
+import { ConnectorsView } from "@/components/earendel/views/connectors-view";
+import { RecorderView } from "@/components/earendel/views/recorder-view";
+import { ActionsView } from "@/components/earendel/views/actions-view";
+import { ActionDetailView } from "@/components/earendel/views/action-detail-view";
+import { ExecutionsView } from "@/components/earendel/views/executions-view";
+import { MonitoringView } from "@/components/earendel/views/monitoring-view";
+import { PublishingView } from "@/components/earendel/views/publishing-view";
+import { PlaygroundView } from "@/components/earendel/views/playground-view";
+
+function CurrentView() {
+  const view = useStudio((s) => s.view);
+  switch (view) {
+    case "dashboard":
+      return <DashboardView />;
+    case "connectors":
+      return <ConnectorsView />;
+    case "recorder":
+      return <RecorderView />;
+    case "actions":
+      return <ActionsView />;
+    case "action-detail":
+      return <ActionDetailView />;
+    case "executions":
+      return <ExecutionsView />;
+    case "monitoring":
+      return <MonitoringView />;
+    case "publishing":
+      return <PublishingView />;
+    case "playground":
+      return <PlaygroundView />;
+    default:
+      return <DashboardView />;
+  }
+}
+
+export default function Home() {
+  return (
+    <AppShell>
+      <CurrentView />
+    </AppShell>
+  );
+}
