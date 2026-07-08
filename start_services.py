@@ -47,7 +47,7 @@ def kill_pid(pid: int) -> None:
 def start() -> None:
     pids = read_pids()
     # Kill old instances
-    for key in ("next", "backend"):
+    for key in ("next", "backend", "mcp"):
         if key in pids and is_alive(pids[key]):
             print(f"killing old {key} pid={pids[key]}")
             kill_pid(pids[key])
@@ -71,14 +71,29 @@ def start() -> None:
         stdin=subprocess.DEVNULL,
         start_new_session=True,
     )
-    PIDFILE.write_text(f"next={next_proc.pid}\nbackend={backend_proc.pid}\n")
-    print(f"started next={next_proc.pid} backend={backend_proc.pid}")
-    # Wait for both to be ready
+    # Start MCP server (port 3004)
+    mcp_proc = subprocess.Popen(
+        ["bun", "run", "index.ts"],
+        cwd=str(ROOT / "mini-services" / "mcp-server"),
+        stdout=open(ROOT / "mcp-server.log", "ab"),
+        stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    PIDFILE.write_text(
+        f"next={next_proc.pid}\nbackend={backend_proc.pid}\nmcp={mcp_proc.pid}\n"
+    )
+    print(f"started next={next_proc.pid} backend={backend_proc.pid} mcp={mcp_proc.pid}")
+    # Wait for all to be ready
     import urllib.request
-    for label, port in (("next", 3000), ("backend", 8001)):
+    for label, port, path in (
+        ("next", 3000, "/"),
+        ("backend", 8001, "/api/v1/healthz?XTransformPort=8001"),
+        ("mcp", 3004, "/health"),
+    ):
         for _ in range(40):
             try:
-                urllib.request.urlopen(f"http://localhost:{port}/", timeout=1)
+                urllib.request.urlopen(f"http://localhost:{port}{path}", timeout=1)
                 print(f"{label} ready on {port}")
                 break
             except Exception:

@@ -1,0 +1,47 @@
+Earendel MCP Server running on port 3004
+  JSON-RPC: POST http://localhost:3004/mcp
+  SSE:      GET  http://localhost:3004/sse
+  Health:   GET  http://localhost:3004/health
+Earendel MCP Server running on port 3004
+  JSON-RPC: POST http://localhost:3004/mcp
+  SSE:      GET  http://localhost:3004/sse
+  Health:   GET  http://localhost:3004/health
+MCP request error: 63 | // ---- Backend API client ----
+64 | 
+65 | async function fetchActions(): Promise<EarendelAction[]> {
+66 |   const url = `${BACKEND_URL}/api/v1/actions?XTransformPort=${BACKEND_PORT}`;
+67 |   const res = await fetch(url);
+68 |   if (!res.ok) throw new Error(`Failed to fetch actions: ${res.status}`);
+                              ^
+error: Failed to fetch actions: 401
+      at fetchActions (/home/z/my-project/mini-services/mcp-server/index.ts:68:26)
+      at async <anonymous> (/home/z/my-project/mini-services/mcp-server/index.ts:204:31)
+
+Shutting down MCP server...
+Earendel MCP Server running on port 3004
+  JSON-RPC: POST http://localhost:3004/mcp
+  SSE:      GET  http://localhost:3004/sse
+  Health:   GET  http://localhost:3004/health
+MCP request error: 47 |     aud: "earendel-api",
+48 |     iat: Math.floor(Date.now() / 1000),
+49 |     exp: Math.floor(Date.now() / 1000) + 86400 * 7,
+50 |   })).toString("base64url");
+51 |   const data = `${header}.${payload}`;
+52 |   const signature = createSign("sha256").update(data).sign(secret);
+                                                           ^
+error: error:0900006e:PEM routines:OPENSSL_internal:NO_START_LINE
+  library: "PEM routines",
+ function: "OPENSSL_internal",
+   reason: "NO_START_LINE",
+     code: "ERR_OSSL_NO_START_LINE"
+
+      at mintBackendToken (/home/z/my-project/mini-services/mcp-server/index.ts:52:55)
+      at getAuthToken (/home/z/my-project/mini-services/mcp-server/index.ts:62:20)
+      at fetchActions (/home/z/my-project/mini-services/mcp-server/index.ts:104:41)
+      at <anonymous> (/home/z/my-project/mini-services/mcp-server/index.ts:245:31)
+
+Shutting down MCP server...
+Earendel MCP Server running on port 3004
+  JSON-RPC: POST http://localhost:3004/mcp
+  SSE:      GET  http://localhost:3004/sse
+  Health:   GET  http://localhost:3004/health
