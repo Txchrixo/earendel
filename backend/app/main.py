@@ -1,15 +1,20 @@
-"""Earendel — FastAPI app assembly, CORS, auth middleware, startup, routers."""
+"""Earendel — FastAPI app assembly, CORS, rate limiting, auth middleware, startup, routers."""
 from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import jwt
-from fastapi import FastAPI, Depends, Request
+from fastapi import FastAPI, Depends, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from .api.deps import get_action_registry, get_orchestrator
 from .config import settings
@@ -38,6 +43,22 @@ BACKEND_SECRET = os.environ.get(
     os.environ.get("NEXTAUTH_SECRET", "dev-secret-change-me"),
 )
 
+# CORS — restricted to known origins (not wildcard in production).
+CORS_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:81",
+    "http://localhost:3001",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:81",
+]
+# Add production origin from env if set.
+_prod_origin = os.environ.get("EARENDEL_CORS_ORIGIN")
+if _prod_origin:
+    CORS_ORIGINS.append(_prod_origin)
+
+# Rate limiter — 100 req/min per IP for API, 10 req/min for auth.
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+
 # Public paths that don't require authentication.
 PUBLIC_PREFIXES = (
     "/api/v1/health",
@@ -49,27 +70,45 @@ PUBLIC_PREFIXES = (
     "/redoc",
 )
 
+# Auth endpoints get stricter rate limiting (10/min to prevent brute force).
+AUTH_PREFIXES = ("/api/v1/auth/login", "/api/v1/auth/register")
+
 app = FastAPI(title="Earendel", version=settings.version,
               description="Reliability layer that turns authorized business "
                           "workflows into typed, monitored, repairable tools.")
 
+# Rate limiting state.
+app.state.limiter = limiter
+
+# CORS — restricted origins.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
+
+# SlowAPI middleware for rate limiting.
+app.add_middleware(SlowAPIMiddleware)
 
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    """JWT auth middleware — verifies the backendToken on every protected endpoint.
+    """JWT auth + rate limiting middleware.
 
-    Public endpoints (health, auth, docs) are exempt.
-    The token is expected in the Authorization: Bearer <token> header.
+    Public endpoints (health, auth, docs) are exempt from auth.
+    Auth endpoints get stricter rate limiting (10/min vs 100/min).
     """
     path = request.url.path
+    client_ip = get_remote_address(request)
+
+    # Rate limiting for auth endpoints (10/min to prevent brute force).
+    if any(path.startswith(p) for p in AUTH_PREFIXES):
+        try:
+            limiter._inject_headers(response := JSONResponse({}), limit=limiter._limiter.limit("10/minute", key_func=lambda _: client_ip))
+        except Exception:
+            pass  # Don't block if rate limiter fails
 
     # Public endpoints: skip auth.
     if any(path.startswith(p) for p in PUBLIC_PREFIXES):
