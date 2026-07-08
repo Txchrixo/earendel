@@ -40,6 +40,7 @@ import {
   CodeBlock,
 } from "../primitives";
 import { RepairApprovalDialog } from "./monitoring-sections";
+import { FailureBreakdown } from "./monitoring-failure-breakdown";
 
 /* ------------------------------------------------------------------ */
 /* Stat row                                                           */
@@ -544,6 +545,7 @@ export function MonitoringView() {
         <CanaryBoard />
         <ReliabilityTrend />
       </div>
+      <FailureBreakdown />
       <RepairProposals />
 
     </motion.div>

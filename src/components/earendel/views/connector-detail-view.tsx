@@ -314,6 +314,27 @@ export function ConnectorDetailView() {
                     {a.testsPassed}/{a.testsTotal} tests
                   </span>
                 </div>
+                <div className="mt-3 flex items-center gap-2 border-t border-border pt-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openAction(a.id);
+                    }}
+                  >
+                    <Icon name="eye" size={12} aria-hidden /> Open
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      useStudio.setState({ selectedActionId: a.id, view: "playground" });
+                    }}
+                  >
+                    <Icon name="executions" size={12} aria-hidden /> Run
+                  </Button>
+                </div>
               </Card>
             ))}
           </div>

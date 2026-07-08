@@ -484,3 +484,47 @@ Task: Continuous QA + real timeseries endpoint + execution trace diff highlighti
    - Monitoring: add a "failure breakdown" donut chart (by adapter / by action).
    - A "version diff" view on the action detail Versions tab — show what changed between two versions.
 5. **Cron stability**: services stayed up throughout this round. The cron job should continue to restart via `python3 /home/z/my-project/start_services.py` if health checks fail.
+
+---
+Task ID: 11
+Agent: cron-webDevReview (round 6)
+Task: Continuous QA + monitoring failure-breakdown donut + action version-diff view + connector-detail Run button + version timeline polish.
+
+## Current project status assessment
+- Services: Next.js (3000) + FastAPI (8001) + Caddy (81) all healthy, daemonized via `start_services.py`.
+- QA sweep across all 9 views: zero console errors, zero console warnings. Dashboard shows 6 connectors / 5 published actions / 12 executions / 75% success.
+- Round 5 delivered: real timeseries endpoint, execution trace diff highlighting, propose-repair button, dashboard system-health strip. All still working.
+- VLM (glm-4.6v) rated the dashboard 8/10, monitoring 8/10.
+
+## Completed modifications
+1. **Monitoring failure-breakdown donut chart** (new `monitoring-failure-breakdown.tsx`):
+   - New `FailureBreakdown` component: fetches all executions, filters to failed/degraded/human_review, counts by the adapter that ultimately handled the failed execution, renders a recharts PieChart donut (innerRadius 50, outerRadius 75, paddingAngle 3) with per-adapter colors (api=#6B5876, internal_route=#7A8548, browser=#C9A66B, vision=#8B6F5A, human=#A5A19B). Center label shows total failure count. Side legend with colored swatches + counts + percentage badges. Empty state ("No failures" with checkCircle icon) when total=0. Loading spinner while fetching.
+   - Placed between the canary/reliability grid and the repair proposals in the MonitoringView.
+   - Verified: monitoring shows "Failure breakdown · 3 failed/degraded · by adapter" with Browser + Human review slices + "3 failures" center + legend.
+2. **Action version-diff view** (upgraded `VersionsTab` + new `VersionDiffCard` in `action-detail-sections.tsx`):
+   - Each version card now has "A" and "B" compare buttons (toggle-selectable, A=chart-2 ring, B=chart-4 ring). When both are selected, a `VersionDiffCard` appears at the top showing: changelog side-by-side (vA vs vB), adapter diff (with arrow if changed, warn pill), success-rate diff (with +/- delta, green/red pill), release-date diff (with day delta). Dismissable.
+   - Version cards upgraded to `er-card-raised`, gradient version-number tiles (accent gradient for current, primary gradient for others), "current" badge uses er-pill-success, ring highlights for A/B selection.
+   - Hint text "Pick two versions (A + B) to compare what changed." when no comparison active.
+   - Verified: opened downloadInvoice action detail → Versions tab → clicked A on v1.0.0 + B on v1.2.0 → Version comparison card rendered with "v1.0.0 → v1.2.0", changelog diff, success rate "91% → 98% (+7%)" in green, released "(+2d)".
+3. **Connector-detail "Run action" button** (upgraded compiled-action cards in `connector-detail-view.tsx`):
+   - Each compiled action card now has a footer with "Open" (outline, opens action detail) and "Run" (primary, navigates to Playground with the action pre-selected via `useStudio.setState({ selectedActionId, view: 'playground' })`). Both buttons use `e.stopPropagation()` so they don't trigger the card's openAction onClick.
+   - Verified: opened Acme connector detail → clicked "Run" on downloadInvoice → navigated to Playground with downloadInvoice pre-selected + earendel_downloadinvoice MCP tool name visible.
+4. **Version timeline polish**: version-number tiles now use gradient backgrounds (accent for current, primary for others) instead of flat bg-primary/20, current badge uses er-pill-success gradient, cards use er-card-raised with hover lift.
+
+## Verification results
+- `bun run lint` → 0 errors, 0 warnings.
+- dev.log: clean compiles. backend.log: clean, all endpoints 200.
+- agent-browser: monitoring failure-breakdown donut renders (3 failures, Browser + Human review slices); action detail Versions tab shows A/B compare buttons + VersionDiffCard with success-rate/adapters/released deltas; connector-detail Run button navigates to Playground with action pre-selected. Zero console errors.
+- VLM rated the monitoring view 8/10: "The failure-breakdown donut chart provides clear, at-a-glance insight into failure sources, enhancing diagnostic clarity."
+
+## Unresolved issues / risks + next-phase recommendations
+1. **executions-sections.tsx still ~850 lines**: round 5 recommended splitting into executions-diff.tsx + executions-replay.tsx. Not done this round (focused on features). Still acceptable per the round-1 precedent but should be split next round.
+2. **publishing-view.tsx ~703 lines**: same situation. Could split into publishing-sections.tsx.
+3. **Version diff is metric-only**: the VersionDiffCard compares changelog/adapter/successRate/releasedAt but doesn't diff the actual contract (inputs/outputs) between versions — because the backend stores only one contract per action (not per version). A future versioning system that snapshots the contract per version would enable a true contract diff.
+4. **Next-phase feature priorities** (ranked):
+   - Split executions-sections.tsx + publishing-view.tsx into focused helper files (code health).
+   - Backend: snapshot the contract per ActionVersion so the version-diff can show input/output field changes.
+   - Dashboard: make the system-health strip clickable → expand to show full /readyz JSON.
+   - Monitoring: add a "failure breakdown by action" toggle (currently by adapter only).
+   - Action detail: a "Dependencies" tab showing which connectors/credentials an action depends on.
+5. **Cron stability**: services stayed up throughout this round. The cron job should continue to restart via `python3 /home/z/my-project/start_services.py` if health checks fail.

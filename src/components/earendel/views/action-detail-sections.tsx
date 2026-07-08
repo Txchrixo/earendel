@@ -467,6 +467,8 @@ const versionBadge: Record<ActionVersion["status"], React.ReactNode> = {
 
 export function VersionsTab({ action }: { action: TypedAction }) {
   const [rolling, setRolling] = React.useState<string | null>(null);
+  const [compareA, setCompareA] = React.useState<string | null>(null);
+  const [compareB, setCompareB] = React.useState<string | null>(null);
   const setView = useStudio((s) => s.setView);
 
   const rollback = async (version: string) => {
@@ -488,6 +490,10 @@ export function VersionsTab({ action }: { action: TypedAction }) {
     new Date(b.releasedAt).getTime() - new Date(a.releasedAt).getTime(),
   );
 
+  const versionA = versions.find((v) => v.version === compareA);
+  const versionB = versions.find((v) => v.version === compareB);
+  const showDiff = versionA && versionB;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -495,20 +501,41 @@ export function VersionsTab({ action }: { action: TypedAction }) {
       transition={{ duration: 0.2 }}
       className="flex flex-col gap-3"
     >
+      {showDiff && (
+        <VersionDiffCard a={versionA!} b={versionB!} onClose={() => { setCompareA(null); setCompareB(null); }} />
+      )}
       {versions.map((v, i) => {
         const isCurrent = v.version === action.version;
         const canRollback = v.status === "stable" && !isCurrent;
+        const isSelectedA = compareA === v.version;
+        const isSelectedB = compareB === v.version;
         return (
-          <Card key={v.version} className={cn("gap-2 p-4", isCurrent && "border-accent")}>
+          <Card
+            key={v.version}
+            className={cn(
+              "er-card-raised gap-2 p-4 transition-colors",
+              isCurrent && "border-accent",
+              isSelectedA && "ring-1 ring-chart-2",
+              isSelectedB && "ring-1 ring-chart-4",
+            )}
+          >
             <div className="flex flex-wrap items-center gap-3">
-              <span className="grid size-8 place-items-center rounded-md bg-primary/20 font-mono text-xs text-primary">
+              <span
+                className="grid size-8 place-items-center rounded-md font-mono text-xs font-bold"
+                style={{
+                  background: isCurrent
+                    ? "linear-gradient(135deg, rgba(122,133,72,0.40), rgba(122,133,72,0.15))"
+                    : "linear-gradient(135deg, rgba(107,88,118,0.30), rgba(107,88,118,0.10))",
+                  color: "#E8E0D4",
+                }}
+              >
                 v{v.version}
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-medium">{v.changelog}</span>
                   {isCurrent && (
-                    <Badge className="bg-accent text-accent-foreground">current</Badge>
+                    <Badge className="er-pill-success">current</Badge>
                   )}
                   {versionBadge[v.status]}
                 </div>
@@ -523,6 +550,29 @@ export function VersionsTab({ action }: { action: TypedAction }) {
                     {Math.round(v.successRate * 100)}% success
                   </span>
                 </div>
+              </div>
+              {/* Compare selectors */}
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant={isSelectedA ? "default" : "ghost"}
+                  className={isSelectedA ? "bg-chart-2 text-background" : ""}
+                  onClick={() => setCompareA(isSelectedA ? null : v.version)}
+                  aria-pressed={isSelectedA}
+                  title="Set as version A for comparison"
+                >
+                  A
+                </Button>
+                <Button
+                  size="sm"
+                  variant={isSelectedB ? "default" : "ghost"}
+                  className={isSelectedB ? "bg-chart-4 text-background" : ""}
+                  onClick={() => setCompareB(isSelectedB ? null : v.version)}
+                  aria-pressed={isSelectedB}
+                  title="Set as version B for comparison"
+                >
+                  B
+                </Button>
               </div>
               {canRollback && (
                 <Button
@@ -540,7 +590,131 @@ export function VersionsTab({ action }: { action: TypedAction }) {
           </Card>
         );
       })}
+      {!showDiff && versions.length >= 2 && (
+        <p className="er-caption text-muted-foreground text-center pt-2">
+          <Icon name="lightbulb" size={12} aria-hidden className="inline mr-1" />
+          Pick two versions (A + B) to compare what changed.
+        </p>
+      )}
     </motion.div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* VersionDiffCard — diff between two ActionVersions                  */
+/* ------------------------------------------------------------------ */
+
+function VersionDiffCard({
+  a,
+  b,
+  onClose,
+}: {
+  a: ActionVersion;
+  b: ActionVersion;
+  onClose: () => void;
+}) {
+  const adapterChanged = a.adapter !== b.adapter;
+  const successDelta = b.successRate - a.successRate;
+  const successImproved = successDelta > 0;
+  const dateDelta =
+    (new Date(b.releasedAt).getTime() - new Date(a.releasedAt).getTime()) / 86400000;
+
+  return (
+    <Card className="er-card-raised gap-3 p-5 border-accent/40">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span
+            className="grid size-8 place-items-center rounded-md"
+            style={{
+              background: "linear-gradient(135deg, rgba(107,88,118,0.40), rgba(122,133,72,0.18))",
+              color: "#E8E0D4",
+            }}
+          >
+            <Icon name="diff" size={16} aria-hidden />
+          </span>
+          <div>
+            <h4 className="text-sm font-medium">Version comparison</h4>
+            <p className="er-caption text-muted-foreground">
+              v{a.version} → v{b.version}
+            </p>
+          </div>
+        </div>
+        <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close comparison">
+          <Icon name="x" size={14} aria-hidden />
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {/* Changelog diff */}
+        <div className="w-full rounded-md border border-border bg-background/40 p-3">
+          <p className="er-caption text-muted-foreground uppercase tracking-wide mb-1.5">
+            Changelog
+          </p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div>
+              <p className="er-caption text-chart-2 mb-0.5">v{a.version}</p>
+              <p className="text-sm text-foreground">{a.changelog}</p>
+            </div>
+            <div>
+              <p className="er-caption text-chart-4 mb-0.5">v{b.version}</p>
+              <p className="text-sm text-foreground">{b.changelog}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Metrics diff */}
+        <div
+          className={cn(
+            "rounded-md border px-3 py-2 text-xs",
+            adapterChanged ? "er-pill-warn border-transparent" : "border-border bg-secondary text-muted-foreground",
+          )}
+        >
+          <span className="text-muted-foreground">adapter: </span>
+          {adapterChanged ? (
+            <span className="font-mono">
+              <span className="text-chart-2">{a.adapter.replace("_", " ")}</span>
+              <Icon name="arrowRight" size={10} className="mx-1 inline" aria-hidden />
+              <span className="text-chart-4">{b.adapter.replace("_", " ")}</span>
+            </span>
+          ) : (
+            <span className="font-mono text-foreground">{a.adapter.replace("_", " ")}</span>
+          )}
+        </div>
+
+        <div
+          className={cn(
+            "rounded-md border px-3 py-2 text-xs",
+            Math.abs(successDelta) > 0.01
+              ? successImproved ? "er-pill-success border-transparent" : "er-pill-danger border-transparent"
+              : "border-border bg-secondary text-muted-foreground",
+          )}
+        >
+          <span className="text-muted-foreground">success rate: </span>
+          <span className="font-mono text-foreground">
+            {Math.round(a.successRate * 100)}%
+            <Icon name="arrowRight" size={10} className="mx-1 inline" aria-hidden />
+            {Math.round(b.successRate * 100)}%
+            {Math.abs(successDelta) > 0.01 && (
+              <span className={successImproved ? "text-accent" : "text-destructive"}>
+                {" "}({successImproved ? "+" : ""}{Math.round(successDelta * 100)}%)
+              </span>
+            )}
+          </span>
+        </div>
+
+        <div className="rounded-md border border-border bg-secondary px-3 py-2 text-xs text-muted-foreground">
+          <span>released: </span>
+          <span className="font-mono text-foreground">
+            {new Date(a.releasedAt).toLocaleDateString()}
+            <Icon name="arrowRight" size={10} className="mx-1 inline" aria-hidden />
+            {new Date(b.releasedAt).toLocaleDateString()}
+            {Math.abs(dateDelta) >= 1 && (
+              <span className="text-muted-foreground"> ({dateDelta >= 0 ? "+" : ""}{Math.round(dateDelta)}d)</span>
+            )}
+          </span>
+        </div>
+      </div>
+    </Card>
   );
 }
 
