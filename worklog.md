@@ -946,3 +946,70 @@ Task: Build production-ready auth — NextAuth + bcrypt + JWT + Google OAuth + f
 ## Commits pushed
 1. `security: remove .env from git tracking, add .env.example`
 2. `feat(auth): production-ready auth with NextAuth + bcrypt + JWT + Google OAuth`
+
+---
+Task ID: SPLIT-EXEC
+Agent: code-split
+Task: Split executions-sections.tsx into focused helper files.
+
+Work Log:
+- Read full 848-line executions-sections.tsx; mapped each helper/component to its target file.
+- Created executions-helpers.tsx with timeAgo, formatTime, STATUS_OPTIONS, CALLER_OPTIONS, ADAPTER_OPTIONS, traceLevelColor, TraceTimeline, FallbackChain, KeyValueCard, ProposeRepairButton (all exported). Wired imports for React, cn, Card, Badge, Button, toast, Icon, api, types, AdapterChip, CodeBlock.
+- Created executions-diff.tsx with DiffKind, DiffRow, traceKey, diffTraces, diffStyles, DiffTraceTimeline (all exported). Wired imports for cn, Badge, TraceEvent, AdapterChip.
+- Created executions-replay.tsx with ReplayCompareCard. Wired imports for Card, Badge, Button, Icon, Execution type, and re-imports TraceTimeline/KeyValueCard from ./executions-helpers plus DiffTraceTimeline from ./executions-diff.
+- Rewrote executions-sections.tsx to keep only ExecutionsList + ExecutionDetail, importing helpers from the three new files. Updated imports (removed now-unused cn, CodeBlock, RepairProposal, TraceEvent).
+- Verified `bun run lint` exits 0 (no errors).
+- Confirmed pre-existing tsc icon-size errors are unchanged (not introduced by the split).
+
+Stage Summary:
+- executions-sections.tsx: 848 → 396 lines (ExecutionsList, ExecutionDetail only)
+- executions-helpers.tsx: 218 lines (new)
+- executions-diff.tsx: 132 lines (new)
+- executions-replay.tsx: 145 lines (new)
+- `bun run lint` passes with 0 errors.
+
+---
+Task ID: SPLIT-PUB
+Agent: code-split
+Task: Split publishing-view.tsx into focused helper files.
+
+Work Log:
+- Read original publishing-view.tsx (697 lines) to map dependencies for each section.
+- Created publishing-sections.tsx with RichPublishedTool interface, useActionName, COMPAT, McpTab, RestTab, sampleValue, SdkTab, tsType, WebhookTab. Each tab component exported; RichPublishedTool interface exported for the parent view's useApi typing.
+- Created publishing-registry.tsx with the RegistryTab component (uses useApi<McpRegistry> + CodeBlock/EmptyState/RiskBadge primitives).
+- Rewrote publishing-view.tsx to keep only PublishingView (default + named export). It imports McpTab/RestTab/SdkTab/WebhookTab/RichPublishedTool from ./publishing-sections and RegistryTab from ./publishing-registry, and pruned imports that moved out (Button, toast, cn, ErIconName, PublishedTool, McpRegistry, CodeBlock, RiskBadge, Tabs internals no longer needed for the section bodies).
+- Ran `bun run lint` — 0 errors (eslint . clean).
+- Verified pre-existing `tsc --noEmit` Icon-size errors are unchanged (same errors present on the original un-split file via git stash).
+
+Stage Summary:
+- src/components/earendel/views/publishing-sections.tsx — created, 424 lines (tabs: Mcp/Rest/Sdk/Webhook + helpers + RichPublishedTool).
+- src/components/earendel/views/publishing-registry.tsx — created, 129 lines (RegistryTab).
+- src/components/earendel/views/publishing-view.tsx — slimmed from 697 to 173 lines (PublishingView + action selector + Tabs dispatcher only).
+- Total: 726 lines across 3 files vs. 697 in the original (small overhead from per-file imports/headers).
+
+---
+Task ID: SPLIT-ACTION
+Agent: code-split
+Task: Split action-detail-sections.tsx into focused helper files.
+
+Work Log:
+- Read action-detail-sections.tsx (1057 lines) end-to-end to map sections and shared symbols.
+- Confirmed external consumers: only action-detail-view.tsx imports the six tab components (ContractTab, ExecutionTab, TestsCanaryTab, VersionsTab, ExecutionsTab, DependenciesTab).
+- Created action-detail-helpers.tsx exporting ADAPTER_META, FALLBACK_ORDER, tsType, tsSignature, timeAgo, FieldList, Checklist.
+- Created action-detail-contract.tsx exporting ContractTab.
+- Created action-detail-execution.tsx exporting ExecutionTab.
+- Created action-detail-tests.tsx exporting TestsCanaryTab.
+- Created action-detail-versions.tsx exporting versionBadge, VersionsTab, VersionDiffCard, fieldKey, ContractDiff (inlined the original `import("@/lib/earendel/types").ActionContract` as a proper import).
+- Created action-detail-dependencies.tsx exporting DependenciesTab.
+- Rewrote action-detail-sections.tsx to contain only ExecutionsTab plus `export ... from "./action-detail-*"` re-exports so action-detail-view.tsx imports remain unchanged.
+- Ran `bun run lint` → 0 errors. Verified pre-existing TS Icon-size warnings (un-enforced, project-wide) carried over verbatim from the original.
+
+Stage Summary:
+- src/components/earendel/views/action-detail-helpers.tsx — created, 182 lines.
+- src/components/earendel/views/action-detail-contract.tsx — created, 59 lines.
+- src/components/earendel/views/action-detail-execution.tsx — created, 95 lines.
+- src/components/earendel/views/action-detail-tests.tsx — created, 134 lines.
+- src/components/earendel/views/action-detail-versions.tsx — created, 373 lines.
+- src/components/earendel/views/action-detail-dependencies.tsx — created, 192 lines.
+- src/components/earendel/views/action-detail-sections.tsx — slimmed from 1057 to 95 lines (ExecutionsTab + re-exports).
+- Total: 1130 lines across 7 files vs. 1057 in the original (small overhead from per-file imports/headers).
