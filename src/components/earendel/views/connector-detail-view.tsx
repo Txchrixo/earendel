@@ -18,7 +18,7 @@ import {
   AdapterChip,
   CodeBlock,
 } from "../primitives";
-import type { Connector, TypedAction, Execution, WorkflowCategory } from "@/lib/earendel/types";
+import type { Connector, TypedAction, Execution, RepairProposal, WorkflowCategory } from "@/lib/earendel/types";
 
 const categoryIcon: Record<WorkflowCategory, "briefcase" | "package" | "law" | "graph" | "person" | "shield" | "law" | "package"> = {
   finance: "briefcase",
@@ -67,6 +67,8 @@ export function ConnectorDetailView() {
 
   const { data: executions } = useApi<Execution[]>(() => api.listExecutions());
 
+  const { data: allRepairs } = useApi<RepairProposal[]>(() => api.listRepairs());
+
   if (!id) {
     return (
       <div className="mx-auto w-full max-w-5xl p-6 md:p-8">
@@ -107,9 +109,13 @@ export function ConnectorDetailView() {
 
   const catIcon = categoryIcon[connector.category];
   const connectorActions = actions ?? [];
+  const actionIds = new Set(connectorActions.map((a) => a.id));
   const connectorExecutions = (executions ?? [])
-    .filter((e) => connectorActions.some((a) => a.id === e.actionId))
+    .filter((e) => actionIds.has(e.actionId))
     .slice(0, 8);
+  const connectorRepairs = (allRepairs ?? [])
+    .filter((r) => actionIds.has(r.actionId))
+    .slice(0, 5);
 
   return (
     <motion.div
@@ -350,6 +356,60 @@ export function ConnectorDetailView() {
               ))}
             </div>
           </Card>
+        )}
+      </div>
+
+      {/* Recent repairs */}
+      <div className="mt-8">
+        <SectionTitle
+          icon="monitoring"
+          title="Recent repairs"
+          subtitle="Selector-drift proposals for this connector's actions"
+        />
+        {connectorRepairs.length === 0 ? (
+          <EmptyState
+            icon="monitoring"
+            spot="monitoring"
+            title="No repairs needed"
+            description="When a canary detects selector drift on this connector's actions, the repair proposals will appear here."
+          />
+        ) : (
+          <div className="flex flex-col gap-3">
+            {connectorRepairs.map((r) => (
+              <Card key={r.id} className="er-card-raised gap-2 p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Icon name="bug" size={12} className="text-chart-4" aria-hidden />
+                  <code className="font-mono text-xs text-muted-foreground">
+                    v{r.actionVersion}
+                  </code>
+                  <Badge
+                    className={
+                      r.status === "pending"
+                        ? "er-pill-warn"
+                        : r.status === "approved" || r.status === "auto_applied"
+                          ? "er-pill-success"
+                          : "er-pill-danger"
+                    }
+                  >
+                    {r.status.replace("_", " ")}
+                  </Badge>
+                  <span className="ml-auto font-heading text-lg tabular-nums">
+                    {Math.round(r.confidence * 100)}%
+                  </span>
+                </div>
+                <p className="er-caption text-muted-foreground line-clamp-2">{r.reason}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <code className="font-mono text-[11px] text-destructive/80 line-through truncate">
+                    {r.failedSelector}
+                  </code>
+                  <Icon name="arrowRight" size={10} className="text-muted-foreground shrink-0" aria-hidden />
+                  <code className="font-mono text-[11px] text-accent truncate">
+                    {r.candidateSelector}
+                  </code>
+                </div>
+              </Card>
+            ))}
+          </div>
         )}
       </div>
     </motion.div>

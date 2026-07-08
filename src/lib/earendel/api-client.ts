@@ -115,7 +115,10 @@ export const api = {
     }),
 
   // ---- Monitoring ----
-  listRepairs: () => request<RepairProposal[]>("/api/v1/monitoring/repairs"),
+  listRepairs: (actionId?: string) =>
+    request<RepairProposal[]>("/api/v1/monitoring/repairs", {
+      params: actionId ? { actionId } : undefined,
+    }),
   resolveRepair: (id: string, decision: "approved" | "rejected") =>
     request<RepairProposal>(`/api/v1/monitoring/repairs/${id}/resolve`, {
       method: "POST",
@@ -126,6 +129,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ actionId }),
     }),
+  proposeRepair: (actionId: string, executionId: string) =>
+    request<RepairProposal | { proposal: null }>(
+      "/api/v1/monitoring/repairs/propose",
+      { method: "POST", body: JSON.stringify({ actionId, executionId }) },
+    ),
 
   // ---- Publishing ----
   getPublishedTool: (actionId: string) =>

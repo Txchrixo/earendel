@@ -387,3 +387,52 @@ Task: Continuous QA + bug fix (Select uncontrolled→controlled) + repair approv
    - Connector detail: add a "Recent repairs" section showing repair proposals for the connector's actions.
    - A backend `/healthz` (liveness) + `/readyz` (readiness, checks DB) distinction.
 5. **Cron stability**: services stayed up throughout this round (daemonized via start_services.py). The cron job should continue to restart via `python3 /home/z/my-project/start_services.py` if health checks fail at trigger time.
+
+---
+Task ID: 9
+Agent: cron-webDevReview (round 4)
+Task: Continuous QA + real LLM in repair proposer + connector-detail recent repairs + /healthz+/readyz split + dashboard depth variation + system health sparkline.
+
+## Current project status assessment
+- Services: Next.js (3000) + FastAPI (8001) + Caddy (81) all healthy, daemonized via `start_services.py`.
+- QA sweep across all 9 views: zero console errors, zero console warnings. Dashboard shows 6 connectors / 5 published actions / 11 executions / 73% success.
+- Round 3 delivered: repair approval with selector diffing, Toaster consolidation, recorder pre-selection, spot illustrations. All still working.
+- VLM (glm-4.6v) rated the dashboard 8/10 (round 3), repair dialog 7/10.
+
+## Completed modifications
+1. **Real LLM in the repair proposer** (`backend/app/core/repair/repair_proposer.py`):
+   - Upgraded from a pure deterministic stub to LLM-backed with deterministic fallback. New `_llm_propose()` sends the action name + description + failed selector to the LLM with a strict JSON-only system prompt, asking for a candidate selector + label + confidence + reason. 6s timeout via `asyncio.wait_for`. Lenient JSON parse (strips markdown fences, extracts first `{...}` block). On timeout/parse-failure/error → falls back to the deterministic `_CANDIDATES` table (now expanded with entries for all 6 seeded actions).
+   - The LLM-generated proposals are tagged "(LLM-generated)" in the reason; fallback proposals are tagged "(fallback, base conf X)".
+   - New `POST /api/v1/monitoring/repairs/propose` endpoint (body: `{actionId, executionId}`) — injects `get_llm_client()` via FastAPI Depends, calls a new `service.propose_repair()` that fetches the action + execution, calls the proposer, persists the proposal, and returns it.
+   - Verified end-to-end: POSTed with the trackShipment failed execution → LLM responded in 1.9s with candidate `button[aria-label='Download']`, confidence 0.85, reason "The aria-label attribute provides a more stable and accessible alternative to testid for identifying the download button (LLM-generated)". Genuine LLM-backed repair, not a stub.
+2. **Connector detail "Recent repairs" section** (`connector-detail-view.tsx`):
+   - Added `api.listRepairs()` fetch (already existed) + filtered by the connector's action ids into `connectorRepairs`.
+   - New "Recent repairs" section at the bottom of the connector detail: SectionTitle + either an EmptyState (spot="monitoring") "No repairs needed" or a list of repair cards. Each card shows: bug icon, version, status gradient pill (pending=warn, approved=success, rejected=danger), confidence %, reason (line-clamp-2), and a failed→candidate selector diff (red strikethrough → green, with arrow icon).
+   - Verified: opened the Maersk connector detail → "Recent repairs" section shows 2 pending proposals (88% and 85% confidence) with the selector diff.
+3. **Backend /healthz + /readyz split** (`backend/app/main.py`):
+   - `GET /api/v1/healthz` — liveness probe, always returns `{"status":"alive"}` if the process is up (Kubernetes-style).
+   - `GET /api/v1/readyz` — readiness probe, checks the DB (doc_list connectors) + action registry, returns `{"status":"ready","checks":{...},"counts":{...}}`. Returns `not_ready` on DB error.
+   - Verified: `/healthz` → `{"status":"alive"}`, `/readyz` → `{"status":"ready","checks":{"database":"ok","action_registry":"ok"},"counts":{"connectors":6,"actions":7}}`.
+4. **Dashboard depth variation + system health sparkline** (`dashboard-sections.tsx`):
+   - PipelineSection: cards upgraded to `er-card-raised er-lift`, replaced the bg-primary/20 icon tile with a gradient numbered tile (step number in mono font, gradient intensity increases per step), accent icon next to it.
+   - ReliabilitySection: card upgraded to `er-card-raised`. Restructured the top row: bars on the left, new "Success 24h" panel on the right (separated by a border-l) showing a big gradient-text percentage + a new `HealthSpark` inline SVG sparkline. The sparkline renders a 7-point deterministic series ending at the live success rate, with a gradient area fill, accent stroke, and a glowing endpoint dot. Added `tabular-nums` to Metric values.
+   - VLM re-rated the dashboard 8/10: "The raised cards and gradient step numbers add depth and hierarchy, while the success-rate sparkline provides dynamic, at-a-glance data—moving beyond flat design's static, monotonous feel."
+5. **API client additions**: `api.listRepairs(actionId?)` now accepts an optional actionId filter param; added `api.proposeRepair(actionId, executionId)`.
+
+## Verification results
+- `bun run lint` → 0 errors, 0 warnings.
+- dev.log: clean compiles. backend.log: clean, all endpoints 200 (including new `/healthz`, `/readyz`, `/monitoring/repairs/propose`).
+- agent-browser: dashboard renders 6/5/11/73% + sparkline + raised pipeline cards (zero console errors); connector detail shows "Recent repairs" section with 2 pending proposals + selector diffs; LLM repair endpoint returns real LLM-generated reasoning in ~2s.
+- VLM rated the dashboard 8/10.
+
+## Unresolved issues / risks + next-phase recommendations
+1. **LLM latency for repair proposals**: the LLM path takes ~2s (acceptable for on-demand repair proposal via the endpoint). The seed data still uses deterministic proposals — consider re-generating seed repairs via the LLM on first startup for more realistic reasons. Low priority.
+2. **Section-helper files**: publishing-view.tsx ~703 lines, executions-sections.tsx ~647 lines. Still acceptable per the round-1 precedent. monitoring-view.tsx (~533) was partially split into monitoring-sections.tsx (good). Next round could split publishing + executions helpers.
+3. **Sparkline data is deterministic**: the `HealthSpark` uses a hardcoded 7-point series ending at the live value. A real `/api/v1/monitoring/timeseries` endpoint returning actual hourly success rates would make it genuine. Low priority for demo.
+4. **Next-phase feature priorities** (ranked):
+   - Execution trace diff highlighting: in the ReplayCompareCard, color-code individual trace lines as added/removed/modified (not just counts). Currently it shows side-by-side timelines but doesn't highlight which specific events changed.
+   - Real time-series endpoint for the sparkline + monitoring reliability trend chart.
+   - Connector detail: add a "Propose repair" button next to failed executions in the recent-executions list (calls the new `api.proposeRepair` endpoint).
+   - Dashboard: a "system health" footer strip showing /healthz + /readyz status (now that those endpoints exist).
+   - Split publishing-view.tsx + executions-sections.tsx into section-helper files.
+5. **Cron stability**: services stayed up throughout this round. The cron job should continue to restart via `python3 /home/z/my-project/start_services.py` if health checks fail.

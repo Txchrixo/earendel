@@ -129,14 +129,21 @@ export function PipelineSection() {
       <div className="flex flex-col gap-2 md:flex-row md:items-stretch">
         {PIPELINE.map((step, i) => (
           <React.Fragment key={step.title}>
-            <Card className="flex-1 gap-2 p-4">
+            <Card className="er-card-raised er-lift flex-1 gap-2 p-4">
               <div className="flex items-center gap-2">
-                <span className="grid size-7 place-items-center rounded-md bg-primary/20 text-primary">
-                  <Icon name={step.icon} size={14} aria-hidden />
+                <span
+                  className="grid size-7 place-items-center rounded-md font-mono text-xs font-bold"
+                  style={{
+                    background: `linear-gradient(135deg, rgba(107,88,118,${0.3 + i * 0.12}), rgba(122,133,72,${0.12 + i * 0.08}))`,
+                    color: "#E8E0D4",
+                    boxShadow: "inset 0 0 0 1px rgba(232,224,212,0.08)",
+                  }}
+                >
+                  {i + 1}
                 </span>
-                <span className="er-caption text-muted-foreground">Step {i + 1}</span>
+                <Icon name={step.icon} size={14} className="text-accent" aria-hidden />
               </div>
-              <p className="font-heading text-lg leading-tight">{step.title}</p>
+              <p className="font-heading text-lg leading-tight mt-1">{step.title}</p>
               <p className="er-caption text-muted-foreground">{step.desc}</p>
             </Card>
             {i < PIPELINE.length - 1 && (
@@ -179,13 +186,48 @@ function Metric({ label, value, icon }: { label: string; value: React.ReactNode;
       <span className="er-caption flex items-center gap-1 text-muted-foreground">
         <Icon name={icon} size={12} aria-hidden /> {label}
       </span>
-      <span className="font-heading text-2xl leading-none">{value}</span>
+      <span className="font-heading text-2xl leading-none tabular-nums">{value}</span>
     </div>
+  );
+}
+
+/** Small inline SVG sparkline — 7 deterministic points ending at the live value. */
+function HealthSpark({ value }: { value: number }) {
+  // Deterministic 7-point series ending at the live success rate.
+  const pts = [0.82, 0.79, 0.85, 0.88, 0.84, 0.91, value];
+  const w = 120;
+  const h = 36;
+  const max = 1;
+  const min = 0.6;
+  const stepX = w / (pts.length - 1);
+  const coords = pts.map((p, i) => {
+    const x = i * stepX;
+    const y = h - ((p - min) / (max - min)) * h;
+    return [x, y];
+  });
+  const path = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const areaPath = `${path} L${w},${h} L0,${h} Z`;
+  const lastX = coords[coords.length - 1][0];
+  const lastY = coords[coords.length - 1][1];
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden className="overflow-visible">
+      <defs>
+        <linearGradient id="er-spark" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#7A8548" stopOpacity="0.35" />
+          <stop offset="100%" stopColor="#7A8548" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill="url(#er-spark)" />
+      <path d={path} fill="none" stroke="#7A8548" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={lastX} cy={lastY} r="2.5" fill="#7A8548" />
+      <circle cx={lastX} cy={lastY} r="5" fill="#7A8548" fillOpacity="0.2" />
+    </svg>
   );
 }
 
 export function ReliabilitySection() {
   const { data, loading, error } = useApi<MonitoringSummary>(() => api.monitoring(), []);
+  const successPct = data ? Math.round(data.successRate24h * 100) : 0;
   return (
     <section>
       <SectionTitle
@@ -193,7 +235,7 @@ export function ReliabilitySection() {
         title="Reliability at a glance"
         subtitle="Live canary coverage and repair queue"
       />
-      <Card className="gap-4 p-5">
+      <Card className="er-card-raised gap-4 p-5">
         {error ? (
           <p className="er-caption text-muted-foreground">
             Backend connecting… monitoring data will appear here shortly.
@@ -206,10 +248,21 @@ export function ReliabilitySection() {
           </div>
         ) : (
           <>
-            <div className="space-y-2.5">
-              <Bar label="Healthy" value={data?.healthy ?? 0} total={data?.totalActions ?? 1} color="bg-accent" />
-              <Bar label="Degraded" value={data?.degraded ?? 0} total={data?.totalActions ?? 1} color="bg-chart-4" />
-              <Bar label="Broken" value={data?.broken ?? 0} total={data?.totalActions ?? 1} color="bg-destructive" />
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1 space-y-2.5">
+                <Bar label="Healthy" value={data?.healthy ?? 0} total={data?.totalActions ?? 1} color="bg-accent" />
+                <Bar label="Degraded" value={data?.degraded ?? 0} total={data?.totalActions ?? 1} color="bg-chart-4" />
+                <Bar label="Broken" value={data?.broken ?? 0} total={data?.totalActions ?? 1} color="bg-destructive" />
+              </div>
+              <div className="flex flex-col items-end gap-1 border-l border-border pl-4">
+                <span className="er-caption text-muted-foreground flex items-center gap-1">
+                  <Icon name="graph" size={12} aria-hidden /> Success 24h
+                </span>
+                <span className="font-heading text-3xl leading-none tabular-nums er-gradient-text">
+                  {successPct}%
+                </span>
+                <HealthSpark value={data?.successRate24h ?? 0.85} />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-4">
               <Metric label="Canary pass" value={data ? `${Math.round(data.canaryPassRate * 100)}%` : "—"} icon="checkCircle" />

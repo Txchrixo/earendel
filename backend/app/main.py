@@ -65,6 +65,37 @@ async def health() -> dict:
     return {"status": "ok", "version": settings.version, "uptime": uptime}
 
 
+@app.get("/api/v1/healthz")
+async def healthz() -> dict:
+    """Liveness probe (Kubernetes-style). Always returns 200 if the process is up."""
+    return {"status": "alive"}
+
+
+@app.get("/api/v1/readyz")
+async def readyz(registry=Depends(get_action_registry)) -> dict:
+    """Readiness probe — checks the DB + action registry are initialised."""
+    from .infrastructure.database import doc_list
+    try:
+        connectors = await doc_list("connectors")
+        actions = registry.list()
+        return {
+            "status": "ready",
+            "checks": {
+                "database": "ok",
+                "action_registry": "ok" if actions else "empty",
+            },
+            "counts": {
+                "connectors": len(connectors),
+                "actions": len(actions),
+            },
+        }
+    except Exception as exc:
+        return {
+            "status": "not_ready",
+            "checks": {"database": f"error: {exc}"},
+        }
+
+
 @app.get("/api/v1/dashboard/stats")
 async def dashboard_stats(registry=Depends(get_action_registry)) -> dict:
     """Studio dashboard aggregates — shape matches the frontend DashboardStats type."""

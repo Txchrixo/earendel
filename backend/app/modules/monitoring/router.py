@@ -6,7 +6,8 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from ...api.deps import get_action_registry, get_orchestrator
+from ...api.deps import get_action_registry, get_llm_client, get_orchestrator
+from ...infrastructure.llm_client import LLMClient
 from . import service
 
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
@@ -20,6 +21,12 @@ class ResolveBody(BaseModel):
 class CanaryBody(BaseModel):
     """POST body for triggering a canary run."""
     actionId: str
+
+
+class ProposeBody(BaseModel):
+    """POST body for proposing a repair from a failed execution."""
+    actionId: str
+    executionId: str
 
 
 @router.get("/summary")
@@ -54,3 +61,16 @@ async def canary_run_endpoint(
 ) -> dict[str, Any]:
     """Trigger a canary execution of an action."""
     return await service.run_canary(registry, orchestrator, body.actionId)
+
+
+@router.post("/repairs/propose")
+async def propose_repair_endpoint(
+    body: ProposeBody,
+    registry=Depends(get_action_registry),
+    llm: LLMClient = Depends(get_llm_client),
+) -> dict[str, Any]:
+    """Propose a repair for a failed execution via the LLM (with fallback)."""
+    proposal = await service.propose_repair(registry, llm, body.actionId, body.executionId)
+    if proposal is None:
+        return {"proposal": None}
+    return proposal.model_dump(mode="json")
