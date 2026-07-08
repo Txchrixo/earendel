@@ -63,3 +63,34 @@ jobs:
 
       - name: Run vitest
         run: bunx vitest run --reporter=verbose
+
+  # ---- Brique 3: Backend tests (pytest) ----
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-asyncio httpx bcrypt PyJWT
+
+      - name: Run pytest
+        run: |
+          cd backend
+          python -m pytest tests/ -v --tb=short
+        env:
+          EARENDEL_SEED_ON_STARTUP: "false"
