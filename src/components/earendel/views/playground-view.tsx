@@ -17,7 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import { Icon, type ErIconName } from "../icon";
 import { useApi } from "../use-api";
@@ -270,7 +269,7 @@ function ManualRunner({ actions }: { actions: TypedAction[] }) {
         <h3 className="text-sm font-medium">Manual action runner</h3>
       </div>
       <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-        <Select value={actionId} onValueChange={setActionId}>
+        <Select value={actionId || undefined} onValueChange={setActionId}>
           <SelectTrigger className="w-full" aria-label="Select action">
             <SelectValue />
           </SelectTrigger>
@@ -596,7 +595,7 @@ export function PlaygroundView() {
           <ToolsPanel actions={actions} />
         </div>
       )}
-      <Toaster />
+
     </motion.div>
   );
 }

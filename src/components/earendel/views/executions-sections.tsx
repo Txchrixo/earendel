@@ -22,7 +22,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import { Icon } from "../icon";
 import { useApi } from "../use-api";
@@ -150,6 +149,7 @@ export function ExecutionsList() {
       {error ? (
         <EmptyState
           icon="executions"
+          spot="executions"
           title="Backend connecting…"
           description="Recent executions will appear here shortly."
         />
@@ -162,6 +162,7 @@ export function ExecutionsList() {
       ) : filtered.length === 0 ? (
         <EmptyState
           icon="executions"
+          spot="executions"
           title="No executions match"
           description="Adjust the filters or run an action from the Playground."
         />

@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon, type ErIconName } from "./icon";
+import { SpotIllustration } from "./spot-illustration";
 import type {
   RiskLevel,
   ActionStatus,
@@ -237,26 +238,32 @@ interface EmptyStateProps {
   title: string;
   description?: string;
   action?: React.ReactNode;
+  /** Optional spot illustration variant. When set, renders an SVG instead of the icon. */
+  spot?: import("./spot-illustration").SpotVariant;
 }
 
-export function EmptyState({ icon, title, description, action }: EmptyStateProps) {
+export function EmptyState({ icon, title, description, action, spot }: EmptyStateProps) {
   return (
-    <div className="er-grid-bg flex flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border bg-card/40 p-8 text-center">
-      <span
-        className="grid size-11 place-items-center rounded-full"
-        style={{
-          background:
-            "linear-gradient(135deg, rgba(107,88,118,0.30), rgba(122,133,72,0.12))",
-          color: "#A5A19B",
-          boxShadow: "inset 0 0 0 1px rgba(232,224,212,0.06)",
-        }}
-      >
-        <Icon name={icon} size={20} aria-hidden />
-      </span>
+    <div className="er-grid-bg flex flex-col items-center justify-center gap-4 rounded-md border border-dashed border-border bg-card/40 p-10 text-center">
+      {spot ? (
+        <SpotIllustration variant={spot} size={104} className="opacity-90" />
+      ) : (
+        <span
+          className="grid size-11 place-items-center rounded-full"
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(107,88,118,0.30), rgba(122,133,72,0.12))",
+            color: "#A5A19B",
+            boxShadow: "inset 0 0 0 1px rgba(232,224,212,0.06)",
+          }}
+        >
+          <Icon name={icon} size={20} aria-hidden />
+        </span>
+      )}
       <div>
-        <p className="font-heading text-lg">{title}</p>
+        <p className="font-heading text-xl">{title}</p>
         {description && (
-          <p className="er-caption mt-1 text-muted-foreground max-w-sm">
+          <p className="er-caption mt-1.5 text-muted-foreground max-w-sm mx-auto">
             {description}
           </p>
         )}

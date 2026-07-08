@@ -330,3 +330,60 @@ Task: Continuous QA + MCP registry import/export + execution replay with trace d
    - Empty-state spot illustrations (inline SVG) for more personality.
    - A "/healthz" + "/readyz" distinction for the backend (currently a single /health).
 6. **Cron job stability**: the cron webDevReview runs every 15 min. If services are down at trigger time, the agent should restart via `python3 /home/z/my-project/start_services.py` before doing QA. This is documented but worth automating as a health-check preflight.
+
+---
+Task ID: 8
+Agent: cron-webDevReview (round 3)
+Task: Continuous QA + bug fix (Select uncontrolled→controlled) + repair approval with selector diffing + Toaster consolidation + connector-detail→recorder pre-selection + spot illustrations.
+
+## Current project status assessment
+- Services: Next.js (3000) + FastAPI (8001) + Caddy (81) all healthy, daemonized via `start_services.py`.
+- QA sweep across all 9 views: zero console errors, zero console warnings (fixed the Select uncontrolled→controlled warning this round). Dashboard shows 6 connectors / 5 published actions / 11 executions / 73% success.
+- Round 2 delivered: MCP registry import/export, execution replay with trace diff, real LLM-backed recording compilation. All still working.
+- VLM (glm-4.6v) rated the repair approval dialog 7/10, registry view 8/10, dashboard 8/10.
+
+## Completed modifications
+1. **Bug fix: Select uncontrolled→controlled warning** (React anti-pattern):
+   - Root cause: the recorder (`recorder-view.tsx`) and playground (`playground-view.tsx`) Select components initialized their `value` to `""` (empty string), which isn't a valid option — Radix Select treats `value=""` as controlled but no matching option exists, then when the useEffect populates the real value it flips from uncontrolled to controlled.
+   - Fix: changed `<Select value={connectorId}>` → `<Select value={connectorId || undefined}>` in both views. `undefined` makes the Select uncontrolled initially (showing the placeholder), then controlled once a real value is set. The publishing view already used this pattern (`selectedId ?? undefined`).
+   - Verified: reloaded + navigated to recorder + playground → zero warnings.
+2. **Repair approval flow with selector diffing** (new `monitoring-sections.tsx`):
+   - New `SelectorDiff` component: parses two CSS selectors (failed vs candidate) into structured parts (tag, id, classes, aria-label, data-testid, attributes) and renders `DiffPill` chips that show old→new with strikethrough+arrow when changed, or a static value when unchanged. Failed selector in a red-tinted box, candidate in a green-tinted box.
+   - New `RepairApprovalDialog`: a full review modal showing confidence (with auto-apply eligibility badge at ≥90%), LLM reasoning, the SelectorDiff, and a Patch impact list (bumps patch version, previous retained for rollback, canary re-runs, audit trail). Approve/Reject buttons.
+   - Updated `RepairCard` in `monitoring-view.tsx`: replaced the inline "Approve & patch" button with "Review & patch" that opens the dialog. Added status gradient pills (pending=warn, approved=success, rejected=danger), auto-apply-eligible badge for high-confidence pending proposals, `er-card-raised` card styling, tabular-nums confidence.
+   - Verified: opened monitoring, clicked "Review & patch" → dialog rendered with "Confidence 88%, manual review recommended, LLM reasoning, Selector breakdown (tag: button→a, data-testid: download-btn→—), Failed/Candidate boxes, Patch impact list".
+3. **Toaster consolidation** (moved into AppShell):
+   - Added a single `<SonnerToaster richColors closeButton position="bottom-right" />` to `AppShell`.
+   - Removed all 5 per-view `<Toaster />` instances + their `import { Toaster } from "@/components/ui/sonner"` imports from: action-detail-view, executions-view, monitoring-view, playground-view, publishing-view, and executions-sections. Now there's exactly one Toaster for the whole app — cleaner, no risk of duplicate toasts.
+4. **Connector detail → recorder pre-selection** (improved):
+   - The recorder's useEffect now prioritizes `selectedConnectorId` from the store (set by `openConnector` in the connector detail) and validates it exists in the connectors list before selecting it. Previously it only pre-selected on first mount if `!connectorId`.
+   - Added a "from connector detail" badge (er-pill-primary) next to the Connector label in the recorder when the connector was pre-selected from the detail view.
+   - Verified: navigated Connectors → Acme card → Record a new workflow → recorder loaded with Acme pre-selected + "from connector detail" badge visible.
+5. **Spot illustrations for empty states** (new `spot-illustration.tsx`):
+   - New `SpotIllustration` component with 7 hand-drawn inline SVG variants (connectors, recorder, actions, executions, monitoring, publishing, playground) using the Earendel palette (dashed circle frame, gradient fills, accent strokes). Each is a small themed illustration: connectors = two linked nodes, recorder = record dot with crosshair, actions = stacked bars, executions = bar chart, monitoring = line chart with trend arrow, publishing = diamond/gem, playground = code brackets.
+   - Added optional `spot` prop to `EmptyState` — when set, renders the SVG illustration (104px) instead of the gradient icon circle. Also increased empty-state padding (p-8→p-10), title size (lg→xl), and centered description.
+   - Applied spot illustrations to: connectors-view (2 states), actions-view (2 states), executions-sections (2 states), connector-detail-view (2 states: no actions, no executions).
+   - The spot illustrations add personality and visual hierarchy to empty states, making them feel intentional rather than placeholder.
+
+## Verification results
+- `bun run lint` → 0 errors, 0 warnings.
+- dev.log: clean compiles, no errors.
+- backend.log: clean, all endpoints 200.
+- agent-browser: 
+  * Dashboard: 6/5/11/73% stats, zero console errors/warnings.
+  * Monitoring: RepairCard shows "Review & patch" button, opens dialog with selector diff + LLM reasoning + patch impact.
+  * Recorder: pre-selects connector from connector-detail with "from connector detail" badge.
+  * Select uncontrolled→controlled warning: GONE (was appearing on dashboard load, now zero warnings across all views).
+- VLM rated the repair approval dialog 7/10.
+
+## Unresolved issues / risks + next-phase recommendations
+1. **Section-helper files keep growing**: monitoring-view.tsx is ~533 lines, publishing-view.tsx ~703 lines, executions-sections.tsx ~647 lines. Round 2 recommended splitting; this round added monitoring-sections.tsx (good), but publishing + executions could still be split. Acceptable but monitor.
+2. **LLM latency for repair proposals**: the repair proposer still uses the deterministic stub (not the real LLM). Round 2 noted this — wiring LLM there with a 3s timeout + fallback would make the reasoning dynamic. Low priority since the stub reasoning reads well.
+3. **Dashboard depth variation** (VLM round-1 note, still open): differentiate primary cards (er-card-raised) from secondary cards more deliberately. The dashboard currently applies er-card-raised uniformly to StatCards but not to the pipeline/reliability sections.
+4. **Next-phase feature priorities** (ranked):
+   - Wire the real LLM into the repair proposer (`repair_proposer.py`) so the `reason` field is LLM-generated, with a 3s timeout + deterministic fallback. The infrastructure (`llm_client.py`) is already in place from round 2.
+   - Execution replay: add a "diff" view that highlights which trace events changed (not just counts) — e.g., color-code added/removed/modified trace lines.
+   - Dashboard: apply er-card-raised to the pipeline + reliability sections; add a small "system health" sparkline.
+   - Connector detail: add a "Recent repairs" section showing repair proposals for the connector's actions.
+   - A backend `/healthz` (liveness) + `/readyz` (readiness, checks DB) distinction.
+5. **Cron stability**: services stayed up throughout this round (daemonized via start_services.py). The cron job should continue to restart via `python3 /home/z/my-project/start_services.py` if health checks fail at trigger time.

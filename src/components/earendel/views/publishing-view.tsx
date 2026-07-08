@@ -15,7 +15,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import { Icon, type ErIconName } from "../icon";
 import { useApi } from "../use-api";
@@ -695,7 +694,7 @@ export function PublishingView() {
           )}
         </TabsContent>
       </Tabs>
-      <Toaster />
+
     </motion.div>
   );
 }

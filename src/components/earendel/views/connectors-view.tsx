@@ -43,6 +43,7 @@ export function ConnectorsView() {
       {error ? (
         <EmptyState
           icon="connectors"
+          spot="connectors"
           title="Backend connecting…"
           description="Your connectors will appear here once the FastAPI service is reachable."
           action={
@@ -65,6 +66,7 @@ export function ConnectorsView() {
       ) : connectors.length === 0 ? (
         <EmptyState
           icon="connectors"
+          spot="connectors"
           title="No connectors yet"
           description="Authorize your first portal or app to start recording workflows."
         />

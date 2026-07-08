@@ -62,8 +62,11 @@ export function RecorderView() {
   const simulation = React.useMemo(() => buildSimulation(selected), [selected]);
 
   React.useEffect(() => {
-    if (!connectorId && connectors && connectors.length > 0) {
-      setConnectorId(selectedConnectorId ?? connectors[0].id);
+    // Pre-select the connector chosen in the connector detail view, if any.
+    if (selectedConnectorId && connectors?.some((c) => c.id === selectedConnectorId)) {
+      setConnectorId(selectedConnectorId);
+    } else if (!connectorId && connectors && connectors.length > 0) {
+      setConnectorId(connectors[0].id);
     }
   }, [connectors, connectorId, selectedConnectorId]);
 
@@ -171,8 +174,15 @@ export function RecorderView() {
           <Card className="gap-3 p-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="rec-connector">Connector</Label>
-                <Select value={connectorId} onValueChange={setConnectorId}>
+                <Label htmlFor="rec-connector" className="flex items-center gap-2">
+                  Connector
+                  {selectedConnectorId && selectedConnectorId === connectorId && (
+                    <span className="er-pill-primary inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-normal">
+                      <Icon name="link" size={9} aria-hidden /> from connector detail
+                    </span>
+                  )}
+                </Label>
+                <Select value={connectorId || undefined} onValueChange={setConnectorId}>
                   <SelectTrigger id="rec-connector" className="w-full">
                     <SelectValue placeholder="Select connector" />
                   </SelectTrigger>

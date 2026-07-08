@@ -13,6 +13,7 @@ import {
 import { Icon, type ErIconName } from "./icon";
 import { useStudio } from "@/lib/earendel/store";
 import type { StudioView } from "@/lib/earendel/types";
+import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 
 interface NavItem {
   id: StudioView;
@@ -245,6 +246,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
       <Footer />
+      <SonnerToaster richColors closeButton position="bottom-right" />
     </div>
   );
 }

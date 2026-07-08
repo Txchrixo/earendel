@@ -276,6 +276,7 @@ export function ConnectorDetailView() {
         {connectorActions.length === 0 ? (
           <EmptyState
             icon="actions"
+            spot="actions"
             title="No actions compiled yet"
             description="Record a workflow against this connector to compile your first typed action."
           />
@@ -323,6 +324,7 @@ export function ConnectorDetailView() {
         {connectorExecutions.length === 0 ? (
           <EmptyState
             icon="executions"
+            spot="executions"
             title="No executions yet"
             description="Run an action on this connector to see traces here."
           />

@@ -3,7 +3,6 @@
 import * as React from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { Toaster } from "@/components/ui/sonner";
 import { Icon } from "../icon";
 import { useStudio } from "@/lib/earendel/store";
 import { SectionTitle, EmptyState } from "../primitives";
@@ -57,7 +56,7 @@ export function ExecutionsView() {
           />
         </>
       )}
-      <Toaster />
+
     </motion.div>
   );
 }

@@ -17,7 +17,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import { Icon, type ErIconName } from "../icon";
 import { useApi } from "../use-api";
@@ -231,7 +230,7 @@ export function ActionDetailView() {
           title="No action selected"
           description="Pick an action from the catalog to inspect its contract."
         />
-        <Toaster />
+  
       </motion.div>
     );
   }
@@ -294,7 +293,7 @@ export function ActionDetailView() {
           </Tabs>
         </>
       )}
-      <Toaster />
+
     </motion.div>
   );
 }

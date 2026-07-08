@@ -162,6 +162,7 @@ export function ActionsView() {
       {error ? (
         <EmptyState
           icon="actions"
+          spot="actions"
           title="Backend connecting…"
           description="Your typed actions will appear here once the FastAPI service is reachable."
           action={
@@ -185,6 +186,7 @@ export function ActionsView() {
       ) : filtered.length === 0 ? (
         <EmptyState
           icon="actions"
+          spot="actions"
           title="No actions match"
           description="Adjust filters or record a new workflow to compile an action."
           action={

@@ -13,7 +13,6 @@ import {
   CollapsibleTrigger,
   CollapsibleContent,
 } from "@/components/ui/collapsible";
-import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import {
   ResponsiveContainer,
@@ -39,6 +38,7 @@ import {
   StatusDot,
   CodeBlock,
 } from "../primitives";
+import { RepairApprovalDialog } from "./monitoring-sections";
 
 /* ------------------------------------------------------------------ */
 /* Stat row                                                           */
@@ -271,6 +271,7 @@ function RepairCard({
   onResolve: (id: string, decision: "approved" | "rejected") => void;
 }) {
   const [busy, setBusy] = React.useState(false);
+  const [dialogOpen, setDialogOpen] = React.useState(false);
   const handle = (decision: "approved" | "rejected") => {
     setBusy(true);
     onResolve(r.id, decision);
@@ -278,7 +279,7 @@ function RepairCard({
   };
   return (
     <motion.div layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-      <Card className="gap-3 p-4">
+      <Card className="er-card-raised gap-3 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -286,23 +287,23 @@ function RepairCard({
               <code className="font-mono text-sm">
                 {r.actionId.slice(0, 16)}…
               </code>
-              <Badge variant="outline" className="er-caption">
+              <Badge variant="outline" className="er-pill-neutral">
                 v{r.actionVersion}
               </Badge>
               <Badge
-                variant={
-                  r.status === "pending"
-                    ? "secondary"
-                    : r.status === "approved" || r.status === "auto_applied"
-                      ? "default"
-                      : "destructive"
-                }
                 className={cn(
-                  r.status === "approved" && "bg-accent text-accent-foreground",
+                  r.status === "pending" && "er-pill-warn",
+                  (r.status === "approved" || r.status === "auto_applied") && "er-pill-success",
+                  r.status === "rejected" && "er-pill-danger",
                 )}
               >
                 {r.status.replace("_", " ")}
               </Badge>
+              {r.confidence >= 0.9 && r.status === "pending" && (
+                <Badge className="er-pill-success">
+                  <Icon name="sparkles" size={10} aria-hidden /> auto-apply eligible
+                </Badge>
+              )}
             </div>
             <p className="er-caption mt-2 text-muted-foreground">{r.reason}</p>
             <p className="er-caption mt-1 text-muted-foreground">
@@ -311,7 +312,7 @@ function RepairCard({
             </p>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
-            <span className="font-heading text-2xl leading-none">
+            <span className="font-heading text-2xl leading-none tabular-nums">
               {Math.round(r.confidence * 100)}%
             </span>
             <span className="er-caption text-muted-foreground">confidence</span>
@@ -324,8 +325,8 @@ function RepairCard({
         />
         {r.status === "pending" && (
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => handle("approved")} disabled={busy}>
-              <Icon name="check" size={12} aria-hidden /> Approve &amp; patch
+            <Button size="sm" onClick={() => setDialogOpen(true)} disabled={busy}>
+              <Icon name="eye" size={12} aria-hidden /> Review &amp; patch
             </Button>
             <Button
               size="sm"
@@ -337,6 +338,12 @@ function RepairCard({
             </Button>
           </div>
         )}
+        <RepairApprovalDialog
+          proposal={r}
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onResolve={handle}
+        />
       </Card>
     </motion.div>
   );
@@ -524,7 +531,7 @@ export function MonitoringView() {
         <ReliabilityTrend />
       </div>
       <RepairProposals />
-      <Toaster />
+
     </motion.div>
   );
 }
