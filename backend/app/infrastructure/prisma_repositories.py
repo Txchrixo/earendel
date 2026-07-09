@@ -97,6 +97,8 @@ class RecordingModel(Base):
     domMutations = Column(Integer, default=0)
     screenshots = Column(Integer, default=0)
     harCaptured = Column(Boolean, default=True)
+    har = Column(Text, default="{}")
+    cookies = Column(Text, default="{}")
     status = Column(String, default="captured")
     compiledActionId = Column(String, nullable=True)
     createdAt = Column(DateTime, default=datetime.utcnow)
@@ -545,6 +547,8 @@ async def recording_put(data: dict) -> dict:
             "domMutations": data.get("domMutations", 0),
             "screenshots": data.get("screenshots", 0),
             "harCaptured": data.get("harCaptured", True),
+            "har": _json_dumps(data.get("har", {})),
+            "cookies": _json_dumps(data.get("cookies", {})),
             "status": data.get("status", "captured"),
             "compiledActionId": data.get("compiledActionId"),
         }
@@ -584,6 +588,8 @@ def _recording_to_dict(row: RecordingModel) -> dict:
         "domMutations": row.domMutations,
         "screenshots": row.screenshots,
         "harCaptured": row.harCaptured,
+        "har": _json_loads(row.har, {}),
+        "cookies": _json_loads(row.cookies, {}),
         "status": row.status,
         "compiledActionId": row.compiledActionId,
         "createdAt": _dt_to_iso(row.createdAt),

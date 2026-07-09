@@ -127,6 +127,29 @@ async def mark_stale_endpoint(
 
 
 # ---------------------------------------------------------------------------
+# POST /discovery/endpoints/{id}/re-discover
+# ---------------------------------------------------------------------------
+
+
+@router.post("/endpoints/{endpoint_id}/re-discover")
+async def re_discover_endpoint(endpoint_id: str) -> dict[str, Any]:
+    """Mark an endpoint for re-discovery on the next recording compile.
+
+    Phase 1.5: this is the manual trigger the studio calls when an operator
+    notices an endpoint marked stale (or running with degraded schemas).
+    It doesn't immediately re-discover — it just flags the endpoint as
+    stale so the next compile of the associated action will re-analyze the
+    HAR and replace this row with a fresh candidate (same id-slot, new
+    body/headers/field-mapping inferred from the latest capture).
+    """
+    ep = await get_endpoint(endpoint_id)
+    if not ep:
+        raise HTTPException(status_code=404, detail="endpoint not found")
+    await mark_stale(endpoint_id, "manual re-discovery trigger")
+    return {"ok": True, "endpointId": endpoint_id, "status": "stale"}
+
+
+# ---------------------------------------------------------------------------
 # GET /discovery/stats
 # ---------------------------------------------------------------------------
 

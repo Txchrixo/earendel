@@ -10,7 +10,9 @@
     "webNavigation",
     "webRequest",
     "tabs",
-    "downloads"
+    "downloads",
+    "debugger",
+    "cookies"
   ],
   "host_permissions": [
     "http://*/*",

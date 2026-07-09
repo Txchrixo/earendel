@@ -141,6 +141,8 @@ model Recording {
   domMutations    Int      @default(0)
   screenshots     Int      @default(0)
   harCaptured     Boolean  @default(true)
+  har             String   @default("{}")
+  cookies         String   @default("{}")
   status          String   @default("captured")
   compiledActionId String?
   createdAt       DateTime @default(now())
@@ -190,6 +192,8 @@ model RepairProposal {
   reason          String
   status          String   @default("pending")
   detectedAt      DateTime @default(now())
+  source          String   @default("fallback")
+  patternKey      String?
 
   action          TypedAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
 

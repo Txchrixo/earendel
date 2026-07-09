@@ -19,10 +19,27 @@ Discovery flow (Option B — the technical moat):
      fetch the highest-scoring ACTIVE discovered endpoint, builds the
      request, attaches the session cookie, and replays it.
 
+Session-cookie resolution (Phase 1.4):
+  - **Preferred**: read the cookies captured during recording and stored on
+    the connector's ``credentialVaultKey`` (JSON-stringified) by the compile
+    endpoint. This is what real Chrome-extension recordings produce.
+  - **Fallback**: read the env var named by the endpoint's
+    ``cookieEnvVar`` (e.g. ``ACME_SESSION_COOKIE``). This is what demo /
+    pre-Phase-1-B deployments use, and what the test suite relies on.
+
+Stale detection (Phase 1.5 — hardened):
+  - HTTP 404/410  → ``mark_stale("endpoint moved")`` + fall through.
+  - HTTP 401/403  → ``record_replay(False)`` + fall through (cookies
+    expired → re-record needed; the endpoint itself is still alive).
+  - Schema mismatch (more than half the stored ``responseShape`` keys
+    missing from the live response) → ``mark_stale("schema changed")`` +
+    fall through (the endpoint moved / changed shape — re-discovery
+    needed).
+
 Fallback ladder (the adapter NEVER raises):
 
   discovered endpoint (DB) with cookie  ->  real HTTP replay
-       | no cookie / HTTP 404-410 / no endpoint
+       | no cookie / HTTP 404-410 / 401-403 / schema mismatch
        v
   hardcoded ``_ROUTE_REGISTRY`` with cookie  ->  real HTTP replay
        | no cookie / no route / error
@@ -36,6 +53,7 @@ fresh installs that haven't compiled a recording yet).
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime
 from typing import Any
@@ -48,6 +66,8 @@ from ..core.discovery.endpoint_store import (
 from ..core.domain.entities import TraceEvent, TypedAction
 from ..core.domain.enums import AdapterType
 from .base import AdapterResult, ExecutionContext, ExecutionAdapter
+
+logger = logging.getLogger("earendel.adapters.internal_route")
 
 # Captured route registry — kept as a SECONDARY fallback (backward compat).
 # Primary path is now the DB-backed ``DiscoveredEndpoint`` table, but if the
@@ -195,6 +215,67 @@ class InternalRouteAdapter(ExecutionAdapter):
     def adapter_type(self) -> AdapterType:
         return AdapterType.internal_route
 
+    # ------------------------------------------------------------------
+    # Session-cookie resolution (Phase 1.4)
+    # ------------------------------------------------------------------
+
+    async def _get_session_cookie(
+        self,
+        action: TypedAction,
+        ctx: ExecutionContext,
+        cookie_env_var: str,
+    ) -> str:
+        """Resolve the session cookie for replay.
+
+        Preferred path: read the cookies captured during recording and
+        stored on the connector's ``credentialVaultKey`` (JSON-stringified)
+        by the compile endpoint. We look for a cookie whose name matches
+        one of the common session-cookie names (``session``, ``session_id``,
+        ``sid``, ``auth``) — case-insensitive — and return its value. If no
+        name matches, we return the first cookie's value (a best-effort
+        heuristic for sites that use non-standard cookie names).
+
+        Fallback path: read the env var named by ``cookie_env_var`` (e.g.
+        ``ACME_SESSION_COOKIE``). This is the pre-Phase-1-B path, kept for
+        demo / test deployments that don't use the Chrome extension.
+
+        Returns ``""`` if neither path yields a cookie — the caller treats
+        that as "no auth available" and falls through to the next fallback.
+        """
+        # ---- Preferred: connector vault (cookies captured during recording)
+        try:
+            # Local import keeps the adapter importable even if the prisma
+            # engine isn't initialised yet (e.g. import-time checks).
+            from ..infrastructure.prisma_repositories import connector_get
+            row = await connector_get(action.connectorId)
+            if row:
+                raw = row.get("credentialVaultKey") or ""
+                if raw and raw.startswith("{"):
+                    parsed = json.loads(raw) if isinstance(raw, str) else raw
+                    if isinstance(parsed, dict):
+                        cookies = parsed.get("cookies") or []
+                        if isinstance(cookies, list) and cookies:
+                            for cookie in cookies:
+                                if not isinstance(cookie, dict):
+                                    continue
+                                name = (cookie.get("name") or "").lower()
+                                if name in ("session", "session_id", "sid", "auth"):
+                                    return cookie.get("value") or ""
+                            # No name match — fall back to the first cookie.
+                            first = cookies[0]
+                            if isinstance(first, dict):
+                                return first.get("value") or ""
+        except Exception as exc:
+            # Vault lookup is best-effort — never raise to the caller. The
+            # env-var fallback below still gives us a working cookie in
+            # deployments that don't persist cookies on the connector.
+            logger.debug("connector cookie lookup failed: %s", exc)
+
+        # ---- Fallback: env var (pre-Phase-1-B path).
+        if cookie_env_var:
+            return os.environ.get(cookie_env_var, "")
+        return ""
+
     async def execute(
         self, action: TypedAction, inputs: dict, ctx: ExecutionContext
     ) -> AdapterResult:
@@ -217,9 +298,10 @@ class InternalRouteAdapter(ExecutionAdapter):
             )
             if result is not None:
                 return result
-            # ``None`` means: no cookie, or HTTP 404/410 (already marked
-            # stale). Fall through to the hardcoded registry — the traces
-            # accumulated so far carry forward.
+            # ``None`` means: no cookie, or HTTP 404/410/401/403, or schema
+            # mismatch (already marked stale / recorded). Fall through to
+            # the hardcoded registry — the traces accumulated so far carry
+            # forward.
 
         # ---- 2. Hardcoded registry (secondary fallback) ----
         result = await self._execute_hardcoded(action, inputs, ctx, ts, traces)
@@ -244,15 +326,20 @@ class InternalRouteAdapter(ExecutionAdapter):
         forward if it falls through to the next fallback.
 
         Returns ``None`` when the caller should fall through to the next
-        fallback (no cookie configured, or HTTP 404/410 — already marked
-        stale here). Returns an :class:`AdapterResult` for any other
-        outcome (success or definitive failure).
+        fallback (no cookie configured, HTTP 404/410/401/403, or schema
+        mismatch — already marked stale / recorded here). Returns an
+        :class:`AdapterResult` for any other outcome (success or
+        definitive failure).
         """
         endpoint_id = endpoint.get("id", "")
         url = endpoint.get("url", "")
         method = (endpoint.get("method") or "POST").upper()
         cookie_env_var = endpoint.get("cookieEnvVar") or ""
-        session_cookie = os.environ.get(cookie_env_var, "") if cookie_env_var else ""
+        # Phase 1.4: prefer cookies captured during recording (stored on
+        # the connector); fall back to the env var if not available.
+        session_cookie = await self._get_session_cookie(
+            action, ctx, cookie_env_var,
+        )
 
         body_template = _safe_json_loads(endpoint.get("bodyTemplate"), {}) or {}
         if not isinstance(body_template, dict):
@@ -263,6 +350,9 @@ class InternalRouteAdapter(ExecutionAdapter):
         field_mapping = _safe_json_loads(endpoint.get("fieldMapping"), {}) or {}
         if not isinstance(field_mapping, dict):
             field_mapping = {}
+        response_shape = _safe_json_loads(endpoint.get("responseShape"), {}) or {}
+        if not isinstance(response_shape, dict):
+            response_shape = {}
 
         traces.append(TraceEvent(
             ts=ts, adapter=AdapterType.internal_route, level="info",
@@ -305,7 +395,7 @@ class InternalRouteAdapter(ExecutionAdapter):
                     )
             elapsed = int((datetime.utcnow() - start).total_seconds() * 1000)
 
-            # 404 / 410 -> mark stale + fall back.
+            # 404 / 410 -> mark stale + fall back (endpoint moved).
             if resp.status_code in (404, 410):
                 traces.append(TraceEvent(
                     ts=ts, adapter=AdapterType.internal_route, level="warn",
@@ -317,6 +407,22 @@ class InternalRouteAdapter(ExecutionAdapter):
                     endpoint_id, f"HTTP {resp.status_code} — endpoint moved"
                 )
                 # Signal "fall through" — traces carry forward.
+                return None
+
+            # Phase 1.5: 401 / 403 -> auth stale. The endpoint itself is
+            # still there, so we DON'T mark it stale — but the cookies have
+            # expired and the action needs re-recording. Record the failed
+            # replay and fall through to the next adapter (the hardcoded
+            # registry will likely fail the same way, but the simulation
+            # fallback gives the orchestrator a graceful degrade).
+            if resp.status_code in (401, 403):
+                traces.append(TraceEvent(
+                    ts=ts, adapter=AdapterType.internal_route, level="warn",
+                    message=f"HTTP {resp.status_code} — auth stale — cookies "
+                            f"expired, re-recording needed",
+                    step="http.response", durationMs=elapsed,
+                ))
+                await record_replay(endpoint_id, False, elapsed)
                 return None
 
             if resp.status_code >= 400:
@@ -351,6 +457,31 @@ class InternalRouteAdapter(ExecutionAdapter):
                     screenshots=[], error="Invalid JSON response",
                     durationMs=elapsed,
                 )
+
+            # Phase 1.5: schema-mismatch detection. If the live response
+            # is missing more than half of the keys we recorded in the
+            # stored ``responseShape``, the endpoint has changed shape
+            # (e.g. a new API version, a different response envelope) —
+            # mark it stale so the next compile re-analyzes the HAR.
+            if response_shape and isinstance(response_data, dict):
+                expected_keys = set(response_shape.keys())
+                actual_keys = set(response_data.keys())
+                missing = expected_keys - actual_keys
+                if expected_keys and len(missing) > len(expected_keys) / 2:
+                    missing_preview = ",".join(sorted(list(missing))[:5])
+                    traces.append(TraceEvent(
+                        ts=ts, adapter=AdapterType.internal_route, level="warn",
+                        message=f"schema mismatch — {len(missing)}/{len(expected_keys)} "
+                                f"keys missing — marking stale",
+                        step="validation", durationMs=1,
+                    ))
+                    await mark_stale(
+                        endpoint_id,
+                        f"schema changed — missing {len(missing)} keys: "
+                        f"{missing_preview}",
+                    )
+                    await record_replay(endpoint_id, False, elapsed)
+                    return None
 
             outputs = _map_response(response_data, action, field_mapping)
             traces.append(TraceEvent(
@@ -406,7 +537,10 @@ class InternalRouteAdapter(ExecutionAdapter):
             return None
 
         cookie_env = route.get("cookie_env", "")
-        session_cookie = os.environ.get(cookie_env, "")
+        # Phase 1.4: same cookie resolution as the discovered path — prefer
+        # cookies captured during recording (stored on the connector), fall
+        # back to the env var named by the hardcoded route.
+        session_cookie = await self._get_session_cookie(action, ctx, cookie_env)
         if not session_cookie:
             # No cookie -> fall through to simulation (no trace emitted —
             # the simulation path will emit its own traces).

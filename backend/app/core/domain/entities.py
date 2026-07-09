@@ -51,6 +51,13 @@ class Connector(BaseModel):
 
 
 class CapturedStep(BaseModel):
+    # Phase-1-B: ignore extra fields so the Chrome extension can ship step
+    # objects with new diagnostic keys (e.g. ``tabId``, ``frameId``,
+    # ``timestamp``) without breaking Pydantic validation. Pydantic v2
+    # ignores extras by default, but we set it explicitly so the contract
+    # is self-documenting + survives any future ``extra="forbid"`` default.
+    model_config = {"extra": "ignore"}
+
     index: int
     type: Literal["navigate", "click", "input", "select", "download", "wait", "assert"]
     description: str
@@ -72,6 +79,8 @@ class Recording(BaseModel):
     domMutations: int
     screenshots: int
     harCaptured: bool = True
+    har: dict = {}
+    cookies: dict = {}
     status: Literal["captured", "compiling", "compiled", "failed"] = "captured"
     compiledActionId: str | None = None
     createdAt: datetime = Field(default_factory=datetime.utcnow)
