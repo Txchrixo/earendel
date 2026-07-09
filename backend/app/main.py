@@ -25,9 +25,12 @@ from .infrastructure.prisma_repositories import (
 )
 from .modules.actions.router import router as actions_router
 from .modules.auth.router import router as auth_router
+from .modules.bu.router import router as bu_router
 from .modules.connectors.router import router as connectors_router
+from .modules.discovery.router import router as discovery_router
 from .modules.executions.router import router as executions_router
 from .modules.monitoring.router import router as monitoring_router
+from .modules.monitoring.repair_kb_router import router as repair_kb_router
 from .modules.publishing.router import router as publishing_router
 from .modules.recordings.router import router as recordings_router
 from .seed import run as seed_run
@@ -430,8 +433,11 @@ app.include_router(recordings_router, prefix="/api/v1")
 app.include_router(actions_router, prefix="/api/v1")
 app.include_router(executions_router, prefix="/api/v1")
 app.include_router(monitoring_router, prefix="/api/v1")
+app.include_router(repair_kb_router, prefix="/api/v1")
 app.include_router(publishing_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
+app.include_router(bu_router, prefix="/api/v1")
+app.include_router(discovery_router, prefix="/api/v1")
 
 
 if __name__ == "__main__":

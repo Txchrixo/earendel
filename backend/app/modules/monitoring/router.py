@@ -77,9 +77,18 @@ async def list_repairs_endpoint() -> list[dict[str, Any]]:
 @router.post("/repairs/{repair_id}/resolve")
 async def resolve_repair_endpoint(
     repair_id: str, body: ResolveBody,
+    registry=Depends(get_action_registry),
 ) -> dict[str, Any]:
-    """Approve / reject / auto-apply a repair proposal."""
-    proposal = await service.resolve_repair(repair_id, body.decision)
+    """Approve / reject / auto-apply a repair proposal.
+
+    Wires the decision back into the cross-client Repair Knowledge Base
+    (best-effort): KB-sourced approvals bump the KB entry's success counter,
+    LLM-sourced approvals are ALSO stored in the KB, rejections record a
+    failure on the KB entry when one exists.
+    """
+    proposal = await service.resolve_repair(
+        repair_id, body.decision, action_registry=registry,
+    )
     return proposal.model_dump(mode="json")
 
 

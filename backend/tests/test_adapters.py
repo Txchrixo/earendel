@@ -17,6 +17,7 @@ import pytest
 from app.adapters.api_adapter import ApiAdapter
 from app.adapters.base import ExecutionContext
 from app.adapters.browser_adapter import BrowserAdapter
+from app.adapters.bu_browser_adapter import BrowserUseAdapter
 from app.adapters.human_adapter import HumanAdapter
 from app.adapters.internal_route_adapter import InternalRouteAdapter
 from app.adapters.vision_adapter import VisionAdapter
@@ -228,18 +229,20 @@ def test_adapter_registry_get_returns_correct_adapter_type():
     assert isinstance(reg.get(AdapterType.api), ApiAdapter)
     assert isinstance(reg.get(AdapterType.internal_route), InternalRouteAdapter)
     assert isinstance(reg.get(AdapterType.browser), BrowserAdapter)
+    assert isinstance(reg.get(AdapterType.bu_browser), BrowserUseAdapter)
     assert isinstance(reg.get(AdapterType.vision), VisionAdapter)
     assert isinstance(reg.get(AdapterType.human), HumanAdapter)
 
 
-def test_adapter_registry_all_returns_five_adapters():
+def test_adapter_registry_all_returns_six_adapters():
     reg = default_registry()
     all_adapters = reg.all()
-    assert len(all_adapters) == 5
+    assert len(all_adapters) == 6
     assert set(all_adapters.keys()) == {
         AdapterType.api,
         AdapterType.internal_route,
         AdapterType.browser,
+        AdapterType.bu_browser,
         AdapterType.vision,
         AdapterType.human,
     }
@@ -262,6 +265,7 @@ def test_adapter_registry_adapter_type_property():
     assert ApiAdapter().adapter_type == AdapterType.api
     assert InternalRouteAdapter().adapter_type == AdapterType.internal_route
     assert BrowserAdapter().adapter_type == AdapterType.browser
+    assert BrowserUseAdapter().adapter_type == AdapterType.bu_browser
     assert VisionAdapter().adapter_type == AdapterType.vision
     assert HumanAdapter().adapter_type == AdapterType.human
 
@@ -391,3 +395,70 @@ async def test_human_adapter_traces_show_escalation(adapter_ctx):
     result = await adapter.execute(action, {}, adapter_ctx)
     assert any("human" in (t.message or "").lower() for t in result.traces)
     assert any("escalat" in (t.message or "").lower() for t in result.traces)
+
+
+# ---------------------------------------------------------------------------
+# BrowserUseAdapter — OPTIONAL adapter, falls back to simulation
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_bu_adapter_falls_back_to_simulation_when_unprovisioned(adapter_ctx):
+    """When no BU key is provisioned AND provisioning fails (no network in
+    tests), the BrowserUseAdapter must fall back to a deterministic simulation.
+
+    The adapter never raises — the orchestrator relies on this contract.
+    """
+    adapter = BrowserUseAdapter()
+    action = _invoice_action()
+    result = await adapter.execute(action, {"invoiceId": "INV-1001"}, adapter_ctx)
+    # Simulation path emits traces containing "(simulated)".
+    assert any("simulated" in (t.message or "") for t in result.traces)
+    assert isinstance(result.success, bool)
+    assert isinstance(result.outputs, dict)
+
+
+@pytest.mark.asyncio
+async def test_bu_adapter_simulation_produces_screenshot(adapter_ctx):
+    """The BrowserUseAdapter simulation always produces at least one screenshot."""
+    adapter = BrowserUseAdapter()
+    action = _invoice_action()
+    result = await adapter.execute(action, {"invoiceId": "INV-1"}, adapter_ctx)
+    assert len(result.screenshots) >= 1
+
+
+@pytest.mark.asyncio
+async def test_bu_adapter_traces_use_bu_browser_type(adapter_ctx):
+    """All BrowserUseAdapter traces must carry adapter=AdapterType.bu_browser."""
+    adapter = BrowserUseAdapter()
+    action = _invoice_action()
+    result = await adapter.execute(action, {"invoiceId": "INV-1"}, adapter_ctx)
+    assert result.traces, "BU adapter must emit at least one trace"
+    for trace in result.traces:
+        assert trace.adapter == AdapterType.bu_browser
+
+
+def test_bu_math_challenge_solver_is_safe_and_correct():
+    """The math challenge parser must NOT use eval and must solve simple
+    arithmetic expressions correctly, formatting the answer as 2-decimal."""
+    from app.adapters.bu_browser_adapter import _solve_math_challenge
+
+    # Basic arithmetic — each returns a 2-decimal string.
+    assert _solve_math_challenge("What is 12 * 12?") == "144.00"
+    assert _solve_math_challenge("What is 7 + 8?") == "15.00"
+    assert _solve_math_challenge("What is 100 - 42?") == "58.00"
+    assert _solve_math_challenge("What is 84 / 4?") == "21.00"
+    # Parentheses, precedence, unary minus.
+    assert _solve_math_challenge("Compute: (2 + 3) * 4") == "20.00"
+    assert _solve_math_challenge("What is -5 + 10?") == "5.00"
+    # Floats.
+    assert _solve_math_challenge("What is 1.5 * 2?") == "3.00"
+
+
+def test_bu_math_challenge_solver_rejects_unsafe_input():
+    """The parser must reject expressions containing letters / forbidden chars."""
+    from app.adapters.bu_browser_adapter import _solve_math_challenge
+
+    with pytest.raises(ValueError):
+        _solve_math_challenge("__import__('os').system('rm -rf /')")
+    with pytest.raises(ValueError):
+        _solve_math_challenge("no math here at all")

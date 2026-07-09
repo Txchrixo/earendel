@@ -56,3 +56,18 @@ error: Failed to start server. Is port 3004 in use?
       at emitError (node:events:51:13)
 
 Bun v1.3.14 (Linux x64 baseline)
+46 |     }
+47 |   }
+48 |   let er;
+49 |   if (args.length > 0)
+50 |     er = args[0];
+51 |     throw er;
+                 ^
+error: Failed to start server. Is port 3004 in use?
+      at emitError (node:events:51:13)
+
+Bun v1.3.14 (Linux x64 baseline)
+Earendel MCP Server running on port 3004
+  JSON-RPC: POST http://localhost:3004/mcp
+  SSE:      GET  http://localhost:3004/sse
+  Health:   GET  http://localhost:3004/health

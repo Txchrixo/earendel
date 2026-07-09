@@ -6,6 +6,7 @@ export type AdapterType =
   | "api"
   | "internal_route"
   | "browser"
+  | "bu_browser"
   | "vision"
   | "human";
 export type ActionStatus = "draft" | "testing" | "published" | "degraded" | "broken";
@@ -326,6 +327,91 @@ export interface DashboardStats {
   canaryCoverage: number;
 }
 
+/* ------------------------------------------------------------------ */
+/* Network Discovery (TRACK-4)                                         */
+/* ------------------------------------------------------------------ */
+
+export interface DiscoveredEndpoint {
+  id: string;
+  actionName: string;
+  connectorId: string | null;
+  method: string;
+  url: string;
+  urlPattern: string;
+  bodyTemplate: string;
+  headersTemplate: string;
+  cookieEnvVar: string;
+  fieldMapping: string;
+  responseShape: string;
+  businessScore: number;
+  clusterSize: number;
+  status: "active" | "stale" | "deprecated";
+  staleReason: string | null;
+  timesReplayed: number;
+  timesSucceeded: number;
+  timesFailed: number;
+  avgLatencyMs: number;
+  discoveredFrom: string;
+  createdAt: string;
+  updatedAt: string;
+  lastReplayedAt: string | null;
+}
+
+export interface DiscoveryStats {
+  totalEndpoints: number;
+  activeEndpoints: number;
+  staleEndpoints: number;
+  totalReplays: number;
+  successRate: number;
+  avgLatencyMs: number;
+}
+
+/* ------------------------------------------------------------------ */
+/* Repair Knowledge Base (TRACK-5)                                     */
+/* ------------------------------------------------------------------ */
+
+export interface RepairKnowledgeEntry {
+  id: string;
+  patternKey: string;
+  targetDomain: string;
+  widgetType: string;
+  intention: string;
+  failedSelector: string;
+  repairedSelector: string;
+  repairedLabel: string;
+  confidence: number;
+  source: "knowledge_base" | "llm" | "fallback";
+  successCount: number;
+  failureCount: number;
+  autoAppliedCount: number;
+  status: "active" | "deprecated";
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt: string | null;
+  successRate?: number; // computed by the list endpoint
+}
+
+export interface RepairKBStats {
+  totalEntries: number;
+  activeEntries: number;
+  totalSuccesses: number;
+  totalAutoApplied: number;
+  avgConfidence: number;
+  mttrTrend: { bucket: string; mttrMs: number | null }[];
+  topDomains: { domain: string; successCount: number }[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Browser Use (TRACK-2)                                               */
+/* ------------------------------------------------------------------ */
+
+export interface BUStatus {
+  provisioned: boolean;
+  apiKeyMasked: string | null;
+  lastUsedAt: string | null;
+  claimUrl: string | null;
+}
+
 export type StudioView =
   | "dashboard"
   | "connectors"
@@ -336,5 +422,7 @@ export type StudioView =
   | "action-detail"
   | "executions"
   | "monitoring"
+  | "discovery"
+  | "repair_kb"
   | "publishing"
   | "playground";

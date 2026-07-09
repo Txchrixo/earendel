@@ -58,6 +58,16 @@ describe("useStudio — setView", () => {
     act(() => useStudio.getState().setView("monitoring"));
     expect(useStudio.getState().view).toBe("monitoring");
   });
+
+  it("changes view to 'discovery' (TRACK-6)", () => {
+    act(() => useStudio.getState().setView("discovery"));
+    expect(useStudio.getState().view).toBe("discovery");
+  });
+
+  it("changes view to 'repair_kb' (TRACK-6)", () => {
+    act(() => useStudio.getState().setView("repair_kb"));
+    expect(useStudio.getState().view).toBe("repair_kb");
+  });
 });
 
 describe("useStudio — openAction", () => {

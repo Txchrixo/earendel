@@ -115,6 +115,15 @@ class RepairProposal(BaseModel):
     reason: str
     status: RepairStatus = RepairStatus.pending
     detectedAt: datetime = Field(default_factory=datetime.utcnow)
+    # Repair Flywheel (Option A) — provenance + cross-client KB linkage.
+    # source ∈ {"knowledge_base", "llm", "fallback"}; defaults to "fallback"
+    # so legacy callers / rows without the column keep working.
+    source: str = "fallback"
+    # patternKey is set when the proposal is KB-sourced (so the resolve
+    # endpoint can record the outcome against the right KB entry). For
+    # LLM-sourced proposals that have been stored into the KB, this is
+    # also populated so the resolve endpoint can update the same entry.
+    patternKey: str | None = None
 
 
 class TypedAction(BaseModel):

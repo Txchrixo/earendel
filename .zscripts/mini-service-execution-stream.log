@@ -10,3 +10,32 @@ Earendel Execution Stream running on port 3003
   WebSocket: ws://localhost:3003/
   Health:    GET http://localhost:3003/health
   Emit:      POST http://localhost:3003/emit
+90 |         console.log(`[stream] Emitted ${event} to exec:${executionId} (${io.sockets.adapter.rooms.get(`exec:${executionId}`)?.size || 0} clients)`);
+91 | 
+92 |         res.writeHead(200, { "Content-Type": "application/json" });
+93 |         res.end(JSON.stringify({ ok: true }));
+94 |       } catch (err) {
+95 |         res.writeHead(500, { "Content-Type": "application/json" });
+                 ^
+error: Cannot writeHead headers after they are sent to the client
+ code: "ERR_HTTP_HEADERS_SENT"
+
+      at <anonymous> (node:_http_server:927:29)
+      at <anonymous> (/home/z/my-project/mini-services/execution-stream/index.ts:95:13)
+      at emit (node:events:92:22)
+      at endReadableNT (internal:streams/readable:865:50)
+90 |         console.log(`[stream] Emitted ${event} to exec:${executionId} (${io.sockets.adapter.rooms.get(`exec:${executionId}`)?.size || 0} clients)`);
+91 | 
+92 |         res.writeHead(200, { "Content-Type": "application/json" });
+93 |         res.end(JSON.stringify({ ok: true }));
+94 |       } catch (err) {
+95 |         res.writeHead(500, { "Content-Type": "application/json" });
+                 ^
+error: Cannot writeHead headers after they are sent to the client
+ code: "ERR_HTTP_HEADERS_SENT"
+
+      at <anonymous> (node:_http_server:927:29)
+      at <anonymous> (/home/z/my-project/mini-services/execution-stream/index.ts:95:13)
+      at emit (node:events:92:22)
+      at endReadableNT (internal:streams/readable:865:50)
+error: script "dev" exited with code 1

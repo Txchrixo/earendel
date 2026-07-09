@@ -134,6 +134,15 @@ describe("AdapterChip", () => {
     expect(chip?.className).toMatch(/border-border/);
     expect(chip?.className).toMatch(/bg-secondary/);
   });
+
+  it("renders bu_browser with a distinct label and cloud styling (TRACK-6)", () => {
+    const { container } = render(<AdapterChip adapter="bu_browser" />);
+    expect(screen.getByText("BU browser")).toBeInTheDocument();
+    // bu_browser uses the chart-1 (purple) palette to signal "optional cloud".
+    const chip = container.querySelector("span");
+    expect(chip?.className).toMatch(/border-chart-1/);
+    expect(chip?.className).toMatch(/text-chart-1/);
+  });
 });
 
 describe("RiskBadge", () => {

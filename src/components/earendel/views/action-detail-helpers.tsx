@@ -38,6 +38,13 @@ export const ADAPTER_META: Record<
     reliability: "80%",
     speed: "~900ms",
   },
+  bu_browser: {
+    icon: "cloud",
+    name: "Browser Use cloud",
+    desc: "Optional — stealth + CAPTCHA + proxies. Activates only when the local browser fails AND the action opts in.",
+    reliability: "88%",
+    speed: "~1500ms",
+  },
   vision: {
     icon: "eye",
     name: "Vision (OmniParser)",
@@ -58,6 +65,7 @@ export const FALLBACK_ORDER: AdapterType[] = [
   "api",
   "internal_route",
   "browser",
+  "bu_browser",
   "vision",
   "human",
 ];

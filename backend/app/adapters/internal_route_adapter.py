@@ -5,23 +5,54 @@ Earendel captures XHR/fetch traffic. This adapter replays those requests
 with the user's session cookies, providing a faster, more reliable path
 than browser automation.
 
-If no captured routes exist for the action, falls back to simulation.
+Discovery flow (Option B — the technical moat):
+
+  1. The recording phase captures a HAR (HTTP Archive) of the workflow.
+  2. ``app.core.discovery.har_analyzer.analyze_har`` clusters the requests
+     by ``(method, normalized_path)``, scores each cluster by business
+     relevance, and infers a ``field_mapping`` (response-key -> contract
+     field), a ``body_template`` (request body with ``{inputKey}``
+     placeholders), and a ``cookie_env_var``.
+  3. The candidates are persisted to the ``DiscoveredEndpoint`` table by
+     ``app.core.discovery.endpoint_store.store_discovered_endpoints``.
+  4. At runtime, this adapter calls ``get_best_endpoint(action.name)`` to
+     fetch the highest-scoring ACTIVE discovered endpoint, builds the
+     request, attaches the session cookie, and replays it.
+
+Fallback ladder (the adapter NEVER raises):
+
+  discovered endpoint (DB) with cookie  ->  real HTTP replay
+       | no cookie / HTTP 404-410 / no endpoint
+       v
+  hardcoded ``_ROUTE_REGISTRY`` with cookie  ->  real HTTP replay
+       | no cookie / no route / error
+       v
+  ``_simulate()`` (deterministic outputs + simulated traces)
+
+The hardcoded ``_ROUTE_REGISTRY`` is kept as a secondary fallback so the
+adapter still works if the DB is unavailable or empty (e.g. for tests /
+fresh installs that haven't compiled a recording yet).
 """
 from __future__ import annotations
 
-import asyncio
+import json
 import os
 from datetime import datetime
 from typing import Any
 
 import httpx
 
+from ..core.discovery.endpoint_store import (
+    get_best_endpoint, mark_stale, record_replay,
+)
 from ..core.domain.entities import TraceEvent, TypedAction
 from ..core.domain.enums import AdapterType
 from .base import AdapterResult, ExecutionContext, ExecutionAdapter
 
-# Captured route registry: maps action names to their discovered internal endpoints.
-# In production, these are captured during the recording phase and stored per-action.
+# Captured route registry — kept as a SECONDARY fallback (backward compat).
+# Primary path is now the DB-backed ``DiscoveredEndpoint`` table, but if the
+# DB is empty or unavailable, this hardcoded registry still lets the adapter
+# do real HTTP replays for the 3 originally-seeded actions.
 _ROUTE_REGISTRY: dict[str, dict[str, Any]] = {
     "downloadInvoice": {
         "method": "POST",
@@ -79,7 +110,12 @@ def _get_nested(data: dict, path: str) -> Any:
 
 
 def _build_body(template: dict, inputs: dict) -> dict:
-    """Build the request body from the template, substituting input values."""
+    """Build the request body from the template, substituting input values.
+
+    A template value of the form ``"{inputKey}"`` is replaced with
+    ``inputs[inputKey]`` (falling back to the literal placeholder if the
+    input is missing). Any other value is passed through verbatim.
+    """
     body = {}
     for key, value in template.items():
         if isinstance(value, str) and value.startswith("{") and value.endswith("}"):
@@ -90,12 +126,46 @@ def _build_body(template: dict, inputs: dict) -> dict:
     return body
 
 
-def _map_response(response_data: dict, action: TypedAction, route_config: dict) -> dict:
-    """Map the API response to the action's output contract fields."""
-    mapping = route_config.get("field_mapping", {})
+def _resolve_headers(
+    headers_template: dict[str, Any],
+    session_cookie: str,
+) -> dict[str, str]:
+    """Build request headers from the template + the resolved session cookie.
+
+    Values of the form ``{ENV_VAR_NAME}`` are substituted with the env var's
+    value (skipped if unset). The session cookie is attached as both
+    ``Cookie`` and ``X-XSRF-TOKEN`` (mirroring the existing hardcoded path).
+    """
+    headers: dict[str, str] = {}
+    for k, v in headers_template.items():
+        if isinstance(v, str) and v.startswith("{") and v.endswith("}"):
+            env_name = v[1:-1]
+            env_val = os.environ.get(env_name, "")
+            if env_val:
+                headers[k] = env_val
+        elif isinstance(v, str) and v:
+            headers[k] = v
+    headers.setdefault("Content-Type", "application/json")
+    headers.setdefault("Accept", "application/json")
+    if session_cookie:
+        headers.setdefault(
+            "Cookie", f"session={session_cookie}"
+        )
+        xsrf = session_cookie[:32] if len(session_cookie) >= 32 else session_cookie
+        headers.setdefault("X-XSRF-TOKEN", xsrf)
+    return headers
+
+
+def _map_response(
+    response_data: dict, action: TypedAction, field_mapping: dict[str, str]
+) -> dict:
+    """Map the API response to the action's output contract fields.
+
+    ``field_mapping`` is ``{contract_field_name: response_key_or_dot_path}``.
+    """
     outputs: dict[str, Any] = {}
     for field in action.contract.outputs:
-        api_field = mapping.get(field.name, field.name)
+        api_field = field_mapping.get(field.name, field.name)
         value = _get_nested(response_data, api_field)
         if value is not None:
             outputs[field.name] = value
@@ -106,6 +176,16 @@ def _map_response(response_data: dict, action: TypedAction, route_config: dict) 
         else:
             outputs[field.name] = None
     return outputs
+
+
+def _safe_json_loads(text: str | None, default: Any) -> Any:
+    """Parse JSON safely — returns ``default`` on any error / empty input."""
+    if not text or not isinstance(text, str):
+        return default
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return default
 
 
 class InternalRouteAdapter(ExecutionAdapter):
@@ -119,52 +199,100 @@ class InternalRouteAdapter(ExecutionAdapter):
         self, action: TypedAction, inputs: dict, ctx: ExecutionContext
     ) -> AdapterResult:
         ts = ctx.telemetry.now()
-        route = _ROUTE_REGISTRY.get(action.name)
+        # Shared trace list — appended to by every fallback layer so the
+        # final AdapterResult carries the full provenance of what was tried
+        # (discovered -> hardcoded -> simulation), even when only the last
+        # layer actually produced outputs.
+        traces: list[TraceEvent] = []
 
-        # If no route captured OR no session cookie, fall back to simulation.
-        if route is None:
-            return await self._simulate(action, inputs, ctx)
+        # ---- 1. DB-backed discovered endpoint (primary path) ----
+        try:
+            endpoint = await get_best_endpoint(action.name)
+        except Exception:
+            endpoint = None
 
-        # Check if session cookie is configured — if not, use simulation.
-        cookie_env = route.get("cookie_env", "")
-        session_cookie = os.environ.get(cookie_env, "")
+        if endpoint and endpoint.get("status") == "active":
+            result = await self._execute_discovered(
+                endpoint, action, inputs, ctx, ts, traces
+            )
+            if result is not None:
+                return result
+            # ``None`` means: no cookie, or HTTP 404/410 (already marked
+            # stale). Fall through to the hardcoded registry — the traces
+            # accumulated so far carry forward.
+
+        # ---- 2. Hardcoded registry (secondary fallback) ----
+        result = await self._execute_hardcoded(action, inputs, ctx, ts, traces)
+        if result is not None:
+            return result
+
+        # ---- 3. Final fallback: simulation ----
+        return await self._simulate(action, inputs, ctx, traces)
+
+    async def _execute_discovered(
+        self,
+        endpoint: dict,
+        action: TypedAction,
+        inputs: dict,
+        ctx: ExecutionContext,
+        ts: datetime,
+        traces: list[TraceEvent],
+    ) -> AdapterResult | None:
+        """Replay a DB-backed discovered endpoint.
+
+        Appends to the shared ``traces`` list so the caller can carry them
+        forward if it falls through to the next fallback.
+
+        Returns ``None`` when the caller should fall through to the next
+        fallback (no cookie configured, or HTTP 404/410 — already marked
+        stale here). Returns an :class:`AdapterResult` for any other
+        outcome (success or definitive failure).
+        """
+        endpoint_id = endpoint.get("id", "")
+        url = endpoint.get("url", "")
+        method = (endpoint.get("method") or "POST").upper()
+        cookie_env_var = endpoint.get("cookieEnvVar") or ""
+        session_cookie = os.environ.get(cookie_env_var, "") if cookie_env_var else ""
+
+        body_template = _safe_json_loads(endpoint.get("bodyTemplate"), {}) or {}
+        if not isinstance(body_template, dict):
+            body_template = {}
+        headers_template = _safe_json_loads(endpoint.get("headersTemplate"), {}) or {}
+        if not isinstance(headers_template, dict):
+            headers_template = {}
+        field_mapping = _safe_json_loads(endpoint.get("fieldMapping"), {}) or {}
+        if not isinstance(field_mapping, dict):
+            field_mapping = {}
+
+        traces.append(TraceEvent(
+            ts=ts, adapter=AdapterType.internal_route, level="info",
+            message=f"discovered endpoint {url} (from HAR capture, "
+                    f"score={float(endpoint.get('businessScore', 0) or 0):.2f})",
+            step="discover",
+        ))
+
+        # No cookie configured -> warn + fall through (return None).
         if not session_cookie:
-            return await self._simulate(action, inputs, ctx)
-
-        method = route.get("method", "POST")
-        url = route["url"]
-        body = _build_body(route.get("body_template", {}), inputs)
-
-        # Get session cookie from env.
-        cookie_env = route.get("cookie_env", "")
-        session_cookie = os.environ.get(cookie_env, "")
-
-        traces: list[TraceEvent] = [
-            TraceEvent(ts=ts, adapter=AdapterType.internal_route, level="info",
-                       message=f"discovered endpoint {url} (from HAR capture)",
-                       step="discover"),
-        ]
-
-        if session_cookie:
-            traces.append(TraceEvent(
-                ts=ts, adapter=AdapterType.internal_route, level="info",
-                message="session cookie reused", step="auth", durationMs=30))
-            traces.append(TraceEvent(
-                ts=ts, adapter=AdapterType.internal_route, level="info",
-                message="XSRF token attached", step="auth", durationMs=10))
-        else:
             traces.append(TraceEvent(
                 ts=ts, adapter=AdapterType.internal_route, level="warn",
-                message=f"no session cookie in env ({cookie_env}) — proceeding without auth",
-                step="auth", durationMs=5))
+                message=f"no session cookie in env ({cookie_env_var}) — "
+                        f"falling back to hardcoded registry then simulation",
+                step="auth", durationMs=5,
+            ))
+            # Traces carry forward — the next fallback sees them.
+            return None
 
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
-        if session_cookie:
-            headers["Cookie"] = f"session={session_cookie}"
-            headers["X-XSRF-TOKEN"] = session_cookie[:32] if len(session_cookie) >= 32 else session_cookie
+        traces.append(TraceEvent(
+            ts=ts, adapter=AdapterType.internal_route, level="info",
+            message="session cookie reused", step="auth", durationMs=30,
+        ))
+        traces.append(TraceEvent(
+            ts=ts, adapter=AdapterType.internal_route, level="info",
+            message="XSRF token attached", step="auth", durationMs=10,
+        ))
+
+        body = _build_body(body_template, inputs)
+        headers = _resolve_headers(headers_template, session_cookie)
 
         try:
             start = datetime.utcnow()
@@ -172,15 +300,32 @@ class InternalRouteAdapter(ExecutionAdapter):
                 if method == "GET":
                     resp = await client.get(url, headers=headers, params=body)
                 else:
-                    resp = await client.request(method, url, headers=headers, json=body)
-
+                    resp = await client.request(
+                        method, url, headers=headers, json=body
+                    )
             elapsed = int((datetime.utcnow() - start).total_seconds() * 1000)
+
+            # 404 / 410 -> mark stale + fall back.
+            if resp.status_code in (404, 410):
+                traces.append(TraceEvent(
+                    ts=ts, adapter=AdapterType.internal_route, level="warn",
+                    message=f"HTTP {resp.status_code} — endpoint stale — "
+                            f"marking and falling back",
+                    step="http.response", durationMs=elapsed,
+                ))
+                await mark_stale(
+                    endpoint_id, f"HTTP {resp.status_code} — endpoint moved"
+                )
+                # Signal "fall through" — traces carry forward.
+                return None
 
             if resp.status_code >= 400:
                 traces.append(TraceEvent(
                     ts=ts, adapter=AdapterType.internal_route, level="error",
                     message=f"HTTP {resp.status_code}: {resp.text[:200]}",
-                    step="http.response", durationMs=elapsed))
+                    step="http.response", durationMs=elapsed,
+                ))
+                await record_replay(endpoint_id, False, elapsed)
                 return AdapterResult(
                     success=False, outputs={}, traces=traces,
                     screenshots=[], error=f"HTTP {resp.status_code}",
@@ -189,25 +334,31 @@ class InternalRouteAdapter(ExecutionAdapter):
 
             traces.append(TraceEvent(
                 ts=ts, adapter=AdapterType.internal_route, level="info",
-                message=f"200 OK ({elapsed}ms)", step="http.response", durationMs=elapsed))
+                message=f"200 OK ({elapsed}ms)", step="http.response",
+                durationMs=elapsed,
+            ))
 
             try:
                 response_data = resp.json()
             except Exception:
                 traces.append(TraceEvent(
                     ts=ts, adapter=AdapterType.internal_route, level="error",
-                    message="response is not valid JSON", step="parse"))
+                    message="response is not valid JSON", step="parse",
+                ))
+                await record_replay(endpoint_id, False, elapsed)
                 return AdapterResult(
                     success=False, outputs={}, traces=traces,
                     screenshots=[], error="Invalid JSON response",
                     durationMs=elapsed,
                 )
 
-            outputs = _map_response(response_data, action, route)
+            outputs = _map_response(response_data, action, field_mapping)
             traces.append(TraceEvent(
                 ts=ts, adapter=AdapterType.internal_route, level="info",
-                message=f"mapped {len(outputs)} output fields", step="mapping", durationMs=1))
-
+                message=f"mapped {len(outputs)} output fields", step="mapping",
+                durationMs=1,
+            ))
+            await record_replay(endpoint_id, True, elapsed)
             return AdapterResult(
                 success=True, outputs=outputs, traces=traces,
                 screenshots=[], error=None, durationMs=elapsed,
@@ -216,7 +367,9 @@ class InternalRouteAdapter(ExecutionAdapter):
         except httpx.TimeoutException:
             traces.append(TraceEvent(
                 ts=ts, adapter=AdapterType.internal_route, level="error",
-                message=f"timeout after {_TIMEOUT}s", step="http.request"))
+                message=f"timeout after {_TIMEOUT}s", step="http.request",
+            ))
+            await record_replay(endpoint_id, False, int(_TIMEOUT * 1000))
             return AdapterResult(
                 success=False, outputs={}, traces=traces,
                 screenshots=[], error=f"Timeout after {_TIMEOUT}s",
@@ -225,29 +378,166 @@ class InternalRouteAdapter(ExecutionAdapter):
         except Exception as exc:
             traces.append(TraceEvent(
                 ts=ts, adapter=AdapterType.internal_route, level="error",
-                message=f"connection error: {exc}", step="http.request"))
+                message=f"connection error: {exc}", step="http.request",
+            ))
+            await record_replay(endpoint_id, False, 0)
             return AdapterResult(
                 success=False, outputs={}, traces=traces,
-                screenshots=[], error=str(exc),
-                durationMs=0,
+                screenshots=[], error=str(exc), durationMs=0,
+            )
+
+    async def _execute_hardcoded(
+        self,
+        action: TypedAction,
+        inputs: dict,
+        ctx: ExecutionContext,
+        ts: datetime,
+        traces: list[TraceEvent],
+    ) -> AdapterResult | None:
+        """Replay via the hardcoded ``_ROUTE_REGISTRY`` (secondary fallback).
+
+        Appends to the shared ``traces`` list. Returns ``None`` when there's
+        no hardcoded route for this action or no session cookie is configured
+        (so the caller falls through to simulation). Returns an
+        :class:`AdapterResult` otherwise.
+        """
+        route = _ROUTE_REGISTRY.get(action.name)
+        if route is None:
+            return None
+
+        cookie_env = route.get("cookie_env", "")
+        session_cookie = os.environ.get(cookie_env, "")
+        if not session_cookie:
+            # No cookie -> fall through to simulation (no trace emitted —
+            # the simulation path will emit its own traces).
+            return None
+
+        method = route.get("method", "POST")
+        url = route["url"]
+        body = _build_body(route.get("body_template", {}), inputs)
+
+        traces.append(TraceEvent(
+            ts=ts, adapter=AdapterType.internal_route, level="info",
+            message=f"discovered endpoint {url} (hardcoded registry fallback)",
+            step="discover",
+        ))
+        traces.append(TraceEvent(
+            ts=ts, adapter=AdapterType.internal_route, level="info",
+            message="session cookie reused", step="auth", durationMs=30,
+        ))
+        traces.append(TraceEvent(
+            ts=ts, adapter=AdapterType.internal_route, level="info",
+            message="XSRF token attached", step="auth", durationMs=10,
+        ))
+
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Cookie": f"session={session_cookie}",
+            "X-XSRF-TOKEN": session_cookie[:32]
+            if len(session_cookie) >= 32 else session_cookie,
+        }
+
+        try:
+            start = datetime.utcnow()
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                if method == "GET":
+                    resp = await client.get(url, headers=headers, params=body)
+                else:
+                    resp = await client.request(method, url, headers=headers, json=body)
+            elapsed = int((datetime.utcnow() - start).total_seconds() * 1000)
+
+            if resp.status_code >= 400:
+                traces.append(TraceEvent(
+                    ts=ts, adapter=AdapterType.internal_route, level="error",
+                    message=f"HTTP {resp.status_code}: {resp.text[:200]}",
+                    step="http.response", durationMs=elapsed,
+                ))
+                return AdapterResult(
+                    success=False, outputs={}, traces=traces,
+                    screenshots=[], error=f"HTTP {resp.status_code}",
+                    durationMs=elapsed,
+                )
+
+            traces.append(TraceEvent(
+                ts=ts, adapter=AdapterType.internal_route, level="info",
+                message=f"200 OK ({elapsed}ms)", step="http.response",
+                durationMs=elapsed,
+            ))
+
+            try:
+                response_data = resp.json()
+            except Exception:
+                traces.append(TraceEvent(
+                    ts=ts, adapter=AdapterType.internal_route, level="error",
+                    message="response is not valid JSON", step="parse",
+                ))
+                return AdapterResult(
+                    success=False, outputs={}, traces=traces,
+                    screenshots=[], error="Invalid JSON response",
+                    durationMs=elapsed,
+                )
+
+            outputs = _map_response(response_data, action, route.get("field_mapping", {}))
+            traces.append(TraceEvent(
+                ts=ts, adapter=AdapterType.internal_route, level="info",
+                message=f"mapped {len(outputs)} output fields", step="mapping",
+                durationMs=1,
+            ))
+            return AdapterResult(
+                success=True, outputs=outputs, traces=traces,
+                screenshots=[], error=None, durationMs=elapsed,
+            )
+
+        except httpx.TimeoutException:
+            traces.append(TraceEvent(
+                ts=ts, adapter=AdapterType.internal_route, level="error",
+                message=f"timeout after {_TIMEOUT}s", step="http.request",
+            ))
+            return AdapterResult(
+                success=False, outputs={}, traces=traces,
+                screenshots=[], error=f"Timeout after {_TIMEOUT}s",
+                durationMs=int(_TIMEOUT * 1000),
+            )
+        except Exception as exc:
+            traces.append(TraceEvent(
+                ts=ts, adapter=AdapterType.internal_route, level="error",
+                message=f"connection error: {exc}", step="http.request",
+            ))
+            return AdapterResult(
+                success=False, outputs={}, traces=traces,
+                screenshots=[], error=str(exc), durationMs=0,
             )
 
     async def _simulate(
-        self, action: TypedAction, inputs: dict, ctx: ExecutionContext
+        self, action: TypedAction, inputs: dict, ctx: ExecutionContext,
+        traces: list[TraceEvent] | None = None,
     ) -> AdapterResult:
-        """Fallback simulation when no route is captured."""
+        """Fallback simulation when no route is captured.
+
+        If ``traces`` is provided (shared list from the caller), appends the
+        simulation traces to it — so the final result shows the full chain:
+        discovered -> hardcoded -> simulation. If ``traces`` is None (legacy
+        callers), builds a fresh list.
+        """
         from .api_adapter import _simulate_outputs
         ts = ctx.telemetry.now()
         path = f"/internal/v2/{action.name}"
-        traces = [
-            TraceEvent(ts=ts, adapter=AdapterType.internal_route, level="info",
-                       message=f"discovered endpoint {path} (simulated — no HAR capture)",
-                       step="discover"),
-            TraceEvent(ts=ts, adapter=AdapterType.internal_route, level="info",
-                       message="session cookie reused (simulated)", step="auth", durationMs=30),
-            TraceEvent(ts=ts, adapter=AdapterType.internal_route, level="info",
-                       message="200 OK (simulated)", step="http.response", durationMs=140),
-        ]
+        if traces is None:
+            traces = []
+        traces.append(TraceEvent(
+            ts=ts, adapter=AdapterType.internal_route, level="info",
+            message=f"discovered endpoint {path} (simulated — no HAR capture)",
+            step="discover",
+        ))
+        traces.append(TraceEvent(
+            ts=ts, adapter=AdapterType.internal_route, level="info",
+            message="session cookie reused (simulated)", step="auth", durationMs=30,
+        ))
+        traces.append(TraceEvent(
+            ts=ts, adapter=AdapterType.internal_route, level="info",
+            message="200 OK (simulated)", step="http.response", durationMs=140,
+        ))
         return AdapterResult(
             success=True,
             outputs=_simulate_outputs(action, inputs),

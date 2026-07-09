@@ -56,6 +56,7 @@ export const ADAPTER_OPTIONS: AdapterType[] = [
   "api",
   "internal_route",
   "browser",
+  "bu_browser",
   "vision",
   "human",
 ];

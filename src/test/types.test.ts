@@ -54,12 +54,13 @@ describe("AdapterType", () => {
     "api",
     "internal_route",
     "browser",
+    "bu_browser",
     "vision",
     "human",
   ];
 
-  it("has 5 adapters", () => {
-    expect(values).toHaveLength(5);
+  it("has 6 adapters", () => {
+    expect(values).toHaveLength(6);
   });
 
   it("contains the expected string literals", () => {
@@ -67,6 +68,7 @@ describe("AdapterType", () => {
       "api",
       "internal_route",
       "browser",
+      "bu_browser",
       "vision",
       "human",
     ]);
@@ -184,17 +186,24 @@ describe("StudioView", () => {
     "action-detail",
     "executions",
     "monitoring",
+    "discovery",
+    "repair_kb",
     "publishing",
     "playground",
   ];
 
-  it("has 11 views", () => {
-    expect(values).toHaveLength(11);
+  it("has 13 views", () => {
+    expect(values).toHaveLength(13);
   });
 
   it("includes dashboard, actions, and action-detail", () => {
     expect(values).toContain("dashboard");
     expect(values).toContain("actions");
     expect(values).toContain("action-detail");
+  });
+
+  it("includes the TRACK-6 views (discovery, repair_kb)", () => {
+    expect(values).toContain("discovery");
+    expect(values).toContain("repair_kb");
   });
 });

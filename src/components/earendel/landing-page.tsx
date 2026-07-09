@@ -24,7 +24,7 @@ const PIPELINE = [
 ];
 
 const FEATURES = [
-  { icon: "iterations" as ErIconName, title: "Multi-adapter execution", desc: "Official API → discovered internal route → browser → vision → human review. The orchestrator picks the most reliable path automatically." },
+  { icon: "iterations" as ErIconName, title: "Multi-adapter execution", desc: "Official API → discovered internal route → local browser → Browser Use cloud (optional) → vision → human review. The orchestrator picks the most reliable path automatically." },
   { icon: "beaker" as ErIconName, title: "Continuous validation", desc: "Canaries run every 15 minutes. Postconditions checked. Schema validated. You know it broke before your agents do." },
   { icon: "wrench" as ErIconName, title: "Self-healing selectors", desc: "When a UI changes, Earendel proposes a candidate selector with a confidence score. Approve the patch — or let it auto-apply above 90%." },
   { icon: "shield" as ErIconName, title: "Risk-gated autonomy", desc: "Read-only actions auto-run. Submit-level actions need confirmation. Destructive actions require typed approval. Never let an agent improvise." },

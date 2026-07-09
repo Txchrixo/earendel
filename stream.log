@@ -1,0 +1,18 @@
+Earendel Execution Stream running on port 3003
+  WebSocket: ws://localhost:3003/
+  Health:    GET http://localhost:3003/health
+  Emit:      POST http://localhost:3003/emit
+ 98 |     });
+ 99 |     return;
+100 |   }
+101 | 
+102 |   if (req.method === "GET" && req.url === "/health") {
+103 |     res.writeHead(200, { "Content-Type": "application/json" });
+              ^
+error: Cannot writeHead headers after they are sent to the client
+ code: "ERR_HTTP_HEADERS_SENT"
+
+      at <anonymous> (node:_http_server:927:29)
+      at <anonymous> (/home/z/my-project/mini-services/execution-stream/index.ts:103:9)
+      at emit (node:events:98:22)
+      at onNodeHTTPRequest (node:_http_server:373:22)

@@ -135,6 +135,10 @@ class RepairProposalModel(Base):
     reason = Column(String, default="")
     status = Column(String, default="pending")
     detectedAt = Column(DateTime, default=datetime.utcnow)
+    # Repair Flywheel (Option A) — provenance + cross-client KB linkage.
+    # Both columns default so legacy rows / pre-migration DBs keep working.
+    source = Column(String, default="fallback")
+    patternKey = Column(String, nullable=True)
 
 
 class ReviewModel(Base):
@@ -168,6 +172,73 @@ class UserModel(Base):
     updatedAt = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+# ---- Network Discovery (Option B) ----
+
+class DiscoveredEndpointModel(Base):
+    __tablename__ = "DiscoveredEndpoint"
+    id = Column(String, primary_key=True)
+    actionName = Column(String, nullable=False)
+    connectorId = Column(String, nullable=True)
+    method = Column(String, default="POST")
+    url = Column(String, nullable=False)
+    urlPattern = Column(String, default="")
+    bodyTemplate = Column(Text, default="{}")
+    headersTemplate = Column(Text, default="{}")
+    cookieEnvVar = Column(String, default="")
+    fieldMapping = Column(Text, default="{}")
+    responseShape = Column(Text, default="{}")
+    businessScore = Column(Float, default=0.0)
+    clusterSize = Column(Integer, default=1)
+    status = Column(String, default="active")
+    staleReason = Column(String, nullable=True)
+    timesReplayed = Column(Integer, default=0)
+    timesSucceeded = Column(Integer, default=0)
+    timesFailed = Column(Integer, default=0)
+    avgLatencyMs = Column(Integer, default=0)
+    discoveredFrom = Column(String, default="har")
+    createdAt = Column(DateTime, default=datetime.utcnow)
+    updatedAt = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    lastReplayedAt = Column(DateTime, nullable=True)
+
+
+# ---- Repair Flywheel (Option A) ----
+
+class RepairKnowledgeModel(Base):
+    __tablename__ = "RepairKnowledge"
+    id = Column(String, primary_key=True)
+    patternKey = Column(String, nullable=False, unique=True)
+    targetDomain = Column(String, default="")
+    widgetType = Column(String, default="button")
+    intention = Column(String, default="download")
+    failedSelector = Column(String, nullable=False)
+    repairedSelector = Column(String, nullable=False)
+    repairedLabel = Column(String, default="")
+    confidence = Column(Float, default=0.85)
+    source = Column(String, default="llm")
+    successCount = Column(Integer, default=0)
+    failureCount = Column(Integer, default=0)
+    autoAppliedCount = Column(Integer, default=0)
+    status = Column(String, default="active")
+    createdAt = Column(DateTime, default=datetime.utcnow)
+    updatedAt = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    lastUsedAt = Column(DateTime, nullable=True)
+
+
+# ---- Browser Use integration ----
+
+class BrowserUseKeyModel(Base):
+    __tablename__ = "BrowserUseKey"
+    id = Column(String, primary_key=True)
+    apiKey = Column(String, nullable=False)
+    email = Column(String, nullable=True)
+    name = Column(String, nullable=True)
+    claimUrl = Column(String, nullable=True)
+    status = Column(String, default="active")
+    claimed = Column(Boolean, default=False)
+    createdAt = Column(DateTime, default=datetime.utcnow)
+    lastUsedAt = Column(DateTime, nullable=True)
+
+
 # ---- Engine init ----
 
 async def init_prisma_engine() -> None:
@@ -176,6 +247,12 @@ async def init_prisma_engine() -> None:
     Idempotently creates any missing tables (Base.metadata.create_all is a
     no-op for tables that already exist). In production, Prisma owns the
     schema; in tests, this creates the schema from the mirrored models.
+
+    Also runs lightweight ``ALTER TABLE … ADD COLUMN`` migrations for any
+    columns added to existing tables after their initial creation (e.g. the
+    ``source`` + ``patternKey`` columns added to ``RepairProposal`` by the
+    repair-flywheel track). The migration is idempotent — it queries
+    ``PRAGMA table_info`` first and skips columns that already exist.
     """
     global _engine, _sessionmaker
     if _engine is not None:
@@ -184,14 +261,64 @@ async def init_prisma_engine() -> None:
     _engine = create_async_engine(f"sqlite+aiosqlite:///{_PRISMA_DB_PATH}", echo=False)
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_add_missing_columns)
     _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
 
 
+def _add_missing_columns(conn) -> None:
+    """Add columns added to existing tables after their initial creation.
+
+    SQLite's ``CREATE TABLE IF NOT EXISTS`` (used by ``create_all``) is a
+    no-op for tables that already exist, so newly-added ORM columns on
+    pre-existing tables need an explicit ``ALTER TABLE``. Each ALTER is
+    guarded by a ``PRAGMA table_info`` check so the migration is
+    idempotent — running it on an already-migrated DB is a no-op.
+    """
+    from sqlalchemy import text
+
+    # RepairProposal: source + patternKey (Repair Flywheel — Option A).
+    try:
+        cols = {row[1] for row in conn.execute(
+            text("PRAGMA table_info('RepairProposal')")
+        ).fetchall()}
+    except Exception:
+        return
+    if "source" not in cols:
+        try:
+            conn.execute(text(
+                "ALTER TABLE \"RepairProposal\" ADD COLUMN \"source\" "
+                "VARCHAR DEFAULT 'fallback'"
+            ))
+        except Exception:
+            pass
+    if "patternKey" not in cols:
+        try:
+            conn.execute(text(
+                "ALTER TABLE \"RepairProposal\" ADD COLUMN \"patternKey\" VARCHAR"
+            ))
+        except Exception:
+            pass
+
+
 async def dispose_prisma_engine() -> None:
-    global _engine
+    """Dispose the SQLAlchemy async engine + reset the sessionmaker.
+
+    Resetting ``_sessionmaker`` to ``None`` is important: without it, the
+    stale sessionmaker (bound to the disposed engine) would still satisfy
+    the ``_sessionmaker is None`` guard in ``prisma_session()``, so callers
+    would get a session bound to a disposed engine. For SQLite that
+    happens to still work (each connection is independent), which means
+    tests that don't re-initialise the engine would silently read stale
+    data from the previous test's DB file. Setting ``_sessionmaker = None``
+    forces ``prisma_session()`` to raise ``RuntimeError("Prisma engine not
+    initialised")``, which the repair-KB wrappers catch and degrade
+    gracefully from.
+    """
+    global _engine, _sessionmaker
     if _engine is not None:
         await _engine.dispose()
         _engine = None
+    _sessionmaker = None
 
 
 def prisma_session() -> AsyncSession:
@@ -228,6 +355,17 @@ def _dt_to_iso(dt: datetime | None) -> str | None:
     if dt is None:
         return None
     return dt.isoformat()
+
+
+def _iso_to_dt(s: str | None) -> datetime | None:
+    """Parse an ISO string back to a naive datetime. Returns None on falsy input."""
+    if not s:
+        return None
+    try:
+        # Strip trailing Z so we get a naive datetime.
+        return datetime.fromisoformat(s.replace("Z", ""))
+    except Exception:
+        return None
 
 
 # ---- Connector repository ----
@@ -545,6 +683,8 @@ async def repair_put(data: dict) -> dict:
             "confidence": data.get("confidence", 0.8),
             "reason": data.get("reason", ""),
             "status": data.get("status", "pending"),
+            "source": data.get("source", "fallback"),
+            "patternKey": data.get("patternKey"),
         }
         if existing is None:
             fields["id"] = data["id"]
@@ -586,6 +726,8 @@ def _repair_to_dict(row: RepairProposalModel) -> dict:
         "reason": row.reason,
         "status": row.status,
         "detectedAt": _dt_to_iso(row.detectedAt),
+        "source": getattr(row, "source", None) or "fallback",
+        "patternKey": getattr(row, "patternKey", None),
     }
 
 
@@ -716,4 +858,372 @@ def _user_to_dict(row: UserModel) -> dict:
         "role": row.role,
         "createdAt": _dt_to_iso(row.createdAt),
         "updatedAt": _dt_to_iso(row.updatedAt),
+    }
+
+
+# ============================================================
+# DiscoveredEndpoint (Network Discovery — Option B)
+# ============================================================
+
+async def discovered_endpoint_put(data: dict) -> dict:
+    """Upsert a discovered endpoint by id."""
+    async with prisma_session() as s:
+        existing = await s.get(DiscoveredEndpointModel, data["id"])
+        fields = {
+            "actionName": data.get("actionName", ""),
+            "connectorId": data.get("connectorId"),
+            "method": data.get("method", "POST"),
+            "url": data.get("url", ""),
+            "urlPattern": data.get("urlPattern", ""),
+            "bodyTemplate": data.get("bodyTemplate", "{}"),
+            "headersTemplate": data.get("headersTemplate", "{}"),
+            "cookieEnvVar": data.get("cookieEnvVar", ""),
+            "fieldMapping": data.get("fieldMapping", "{}"),
+            "responseShape": data.get("responseShape", "{}"),
+            "businessScore": float(data.get("businessScore", 0.0)),
+            "clusterSize": int(data.get("clusterSize", 1)),
+            "status": data.get("status", "active"),
+            "staleReason": data.get("staleReason"),
+            "timesReplayed": int(data.get("timesReplayed", 0)),
+            "timesSucceeded": int(data.get("timesSucceeded", 0)),
+            "timesFailed": int(data.get("timesFailed", 0)),
+            "avgLatencyMs": int(data.get("avgLatencyMs", 0)),
+            "discoveredFrom": data.get("discoveredFrom", "har"),
+            "lastReplayedAt": _iso_to_dt(data.get("lastReplayedAt")),
+            "updatedAt": datetime.utcnow(),
+        }
+        if existing is None:
+            fields["id"] = data["id"]
+            fields["createdAt"] = datetime.utcnow()
+            s.add(DiscoveredEndpointModel(**fields))
+        else:
+            for k, v in fields.items():
+                setattr(existing, k, v)
+        await s.commit()
+    return data
+
+
+async def discovered_endpoint_list(
+    action_name: str | None = None, status: str | None = None
+) -> list[dict]:
+    async with prisma_session() as s:
+        stmt = select(DiscoveredEndpointModel)
+        if action_name:
+            stmt = stmt.where(DiscoveredEndpointModel.actionName == action_name)
+        if status:
+            stmt = stmt.where(DiscoveredEndpointModel.status == status)
+        stmt = stmt.order_by(DiscoveredEndpointModel.businessScore.desc())
+        result = await s.execute(stmt)
+        return [_discovered_endpoint_to_dict(r) for r in result.scalars()]
+
+
+async def discovered_endpoint_get(endpoint_id: str) -> dict | None:
+    async with prisma_session() as s:
+        row = await s.get(DiscoveredEndpointModel, endpoint_id)
+        return _discovered_endpoint_to_dict(row) if row else None
+
+
+async def discovered_endpoint_get_best(action_name: str) -> dict | None:
+    """Return the highest-scoring active endpoint for an action."""
+    async with prisma_session() as s:
+        result = await s.execute(
+            select(DiscoveredEndpointModel)
+            .where(DiscoveredEndpointModel.actionName == action_name)
+            .where(DiscoveredEndpointModel.status == "active")
+            .order_by(DiscoveredEndpointModel.businessScore.desc())
+            .limit(1))
+        row = result.scalars().first()
+        return _discovered_endpoint_to_dict(row) if row else None
+
+
+async def discovered_endpoint_mark_stale(endpoint_id: str, reason: str) -> None:
+    async with prisma_session() as s:
+        row = await s.get(DiscoveredEndpointModel, endpoint_id)
+        if row:
+            row.status = "stale"
+            row.staleReason = reason
+            row.updatedAt = datetime.utcnow()
+            await s.commit()
+
+
+async def discovered_endpoint_record_replay(
+    endpoint_id: str, succeeded: bool, latency_ms: int
+) -> None:
+    async with prisma_session() as s:
+        row = await s.get(DiscoveredEndpointModel, endpoint_id)
+        if row:
+            row.timesReplayed += 1
+            if succeeded:
+                row.timesSucceeded += 1
+            else:
+                row.timesFailed += 1
+            # Rolling average latency.
+            total = row.avgLatencyMs * (row.timesReplayed - 1) + latency_ms
+            row.avgLatencyMs = int(total / row.timesReplayed)
+            row.lastReplayedAt = datetime.utcnow()
+            row.updatedAt = datetime.utcnow()
+            await s.commit()
+
+
+async def discovered_endpoint_delete(endpoint_id: str) -> None:
+    async with prisma_session() as s:
+        row = await s.get(DiscoveredEndpointModel, endpoint_id)
+        if row:
+            await s.delete(row)
+            await s.commit()
+
+
+def _discovered_endpoint_to_dict(row: DiscoveredEndpointModel) -> dict:
+    return {
+        "id": row.id,
+        "actionName": row.actionName,
+        "connectorId": row.connectorId,
+        "method": row.method,
+        "url": row.url,
+        "urlPattern": row.urlPattern,
+        "bodyTemplate": row.bodyTemplate,
+        "headersTemplate": row.headersTemplate,
+        "cookieEnvVar": row.cookieEnvVar,
+        "fieldMapping": row.fieldMapping,
+        "responseShape": row.responseShape,
+        "businessScore": row.businessScore,
+        "clusterSize": row.clusterSize,
+        "status": row.status,
+        "staleReason": row.staleReason,
+        "timesReplayed": row.timesReplayed,
+        "timesSucceeded": row.timesSucceeded,
+        "timesFailed": row.timesFailed,
+        "avgLatencyMs": row.avgLatencyMs,
+        "discoveredFrom": row.discoveredFrom,
+        "createdAt": _dt_to_iso(row.createdAt),
+        "updatedAt": _dt_to_iso(row.updatedAt),
+        "lastReplayedAt": _dt_to_iso(row.lastReplayedAt),
+    }
+
+
+# ============================================================
+# RepairKnowledge (Repair Flywheel — Option A)
+# ============================================================
+
+async def repair_kb_put(data: dict) -> dict:
+    """Upsert a repair KB entry by patternKey."""
+    async with prisma_session() as s:
+        result = await s.execute(
+            select(RepairKnowledgeModel).where(
+                RepairKnowledgeModel.patternKey == data["patternKey"]))
+        existing = result.scalars().first()
+        fields = {
+            "patternKey": data["patternKey"],
+            "targetDomain": data.get("targetDomain", ""),
+            "widgetType": data.get("widgetType", "button"),
+            "intention": data.get("intention", "download"),
+            "failedSelector": data.get("failedSelector", ""),
+            "repairedSelector": data.get("repairedSelector", ""),
+            "repairedLabel": data.get("repairedLabel", ""),
+            "confidence": float(data.get("confidence", 0.85)),
+            "source": data.get("source", "llm"),
+            "successCount": int(data.get("successCount", 0)),
+            "failureCount": int(data.get("failureCount", 0)),
+            "autoAppliedCount": int(data.get("autoAppliedCount", 0)),
+            "status": data.get("status", "active"),
+            "lastUsedAt": _iso_to_dt(data.get("lastUsedAt")),
+            "updatedAt": datetime.utcnow(),
+        }
+        if existing is None:
+            # Auto-generate a stable, unique id from the patternKey when the
+            # caller doesn't supply one. We use a short SHA-1 prefix rather
+            # than a naive truncation of the patternKey, so two distinct
+            # patternKeys that share a long common prefix (e.g.
+            # ``acme.com:button:download:button[x]:variant-a`` and ``…:variant-b``)
+            # don't collide on the id unique constraint.
+            import hashlib as _hashlib
+            if data.get("id"):
+                fields["id"] = data["id"]
+            else:
+                digest = _hashlib.sha1(
+                    data["patternKey"].encode("utf-8")
+                ).hexdigest()[:16]
+                fields["id"] = f"rkb_{digest}"
+            fields["createdAt"] = datetime.utcnow()
+            s.add(RepairKnowledgeModel(**fields))
+        else:
+            for k, v in fields.items():
+                setattr(existing, k, v)
+        await s.commit()
+    return data
+
+
+async def repair_kb_list(
+    target_domain: str | None = None, status: str | None = None
+) -> list[dict]:
+    async with prisma_session() as s:
+        stmt = select(RepairKnowledgeModel)
+        if target_domain:
+            stmt = stmt.where(RepairKnowledgeModel.targetDomain == target_domain)
+        if status:
+            stmt = stmt.where(RepairKnowledgeModel.status == status)
+        stmt = stmt.order_by(RepairKnowledgeModel.successCount.desc())
+        result = await s.execute(stmt)
+        return [_repair_kb_to_dict(r) for r in result.scalars()]
+
+
+async def repair_kb_get_by_pattern(pattern_key: str) -> dict | None:
+    async with prisma_session() as s:
+        result = await s.execute(
+            select(RepairKnowledgeModel).where(
+                RepairKnowledgeModel.patternKey == pattern_key))
+        row = result.scalars().first()
+        return _repair_kb_to_dict(row) if row else None
+
+
+async def repair_kb_get_by_id(entry_id: str) -> dict | None:
+    """Fetch a single RepairKnowledge row by its primary key id."""
+    async with prisma_session() as s:
+        row = await s.get(RepairKnowledgeModel, entry_id)
+        return _repair_kb_to_dict(row) if row else None
+
+
+async def repair_kb_set_status(entry_id: str, status: str) -> dict | None:
+    """Update a RepairKnowledge row's status (e.g. ``"deprecated"``).
+
+    Returns the updated row dict, or ``None`` if no row matches the id.
+    """
+    async with prisma_session() as s:
+        row = await s.get(RepairKnowledgeModel, entry_id)
+        if row is None:
+            return None
+        row.status = status
+        row.updatedAt = datetime.utcnow()
+        await s.commit()
+        return _repair_kb_to_dict(row)
+
+
+async def repair_kb_search(
+    target_domain: str | None = None,
+    widget_type: str | None = None,
+    intention: str | None = None,
+    min_confidence: float = 0.0,
+    min_success: int = 0,
+    limit: int = 10,
+) -> list[dict]:
+    """RAG-style lookup for repair patterns matching a failure signature."""
+    async with prisma_session() as s:
+        stmt = select(RepairKnowledgeModel).where(
+            RepairKnowledgeModel.status == "active")
+        if target_domain:
+            stmt = stmt.where(RepairKnowledgeModel.targetDomain == target_domain)
+        if widget_type:
+            stmt = stmt.where(RepairKnowledgeModel.widgetType == widget_type)
+        if intention:
+            stmt = stmt.where(RepairKnowledgeModel.intention == intention)
+        stmt = stmt.where(RepairKnowledgeModel.confidence >= min_confidence)
+        stmt = stmt.where(RepairKnowledgeModel.successCount >= min_success)
+        stmt = stmt.order_by(
+            RepairKnowledgeModel.confidence.desc(),
+            RepairKnowledgeModel.successCount.desc()).limit(limit)
+        result = await s.execute(stmt)
+        return [_repair_kb_to_dict(r) for r in result.scalars()]
+
+
+async def repair_kb_record_outcome(
+    pattern_key: str, succeeded: bool, auto_applied: bool = False
+) -> None:
+    """Record whether a KB-sourced repair succeeded or failed."""
+    async with prisma_session() as s:
+        result = await s.execute(
+            select(RepairKnowledgeModel).where(
+                RepairKnowledgeModel.patternKey == pattern_key))
+        row = result.scalars().first()
+        if row:
+            if succeeded:
+                row.successCount += 1
+            else:
+                row.failureCount += 1
+            if auto_applied:
+                row.autoAppliedCount += 1
+            row.lastUsedAt = datetime.utcnow()
+            row.updatedAt = datetime.utcnow()
+            await s.commit()
+
+
+def _repair_kb_to_dict(row: RepairKnowledgeModel) -> dict:
+    return {
+        "id": row.id,
+        "patternKey": row.patternKey,
+        "targetDomain": row.targetDomain,
+        "widgetType": row.widgetType,
+        "intention": row.intention,
+        "failedSelector": row.failedSelector,
+        "repairedSelector": row.repairedSelector,
+        "repairedLabel": row.repairedLabel,
+        "confidence": row.confidence,
+        "source": row.source,
+        "successCount": row.successCount,
+        "failureCount": row.failureCount,
+        "autoAppliedCount": row.autoAppliedCount,
+        "status": row.status,
+        "createdAt": _dt_to_iso(row.createdAt),
+        "updatedAt": _dt_to_iso(row.updatedAt),
+        "lastUsedAt": _dt_to_iso(row.lastUsedAt),
+    }
+
+
+# ============================================================
+# BrowserUseKey (BU adapter — optional)
+# ============================================================
+
+async def bu_key_put(data: dict) -> dict:
+    async with prisma_session() as s:
+        existing = await s.get(BrowserUseKeyModel, data["id"])
+        fields = {
+            "apiKey": data.get("apiKey", ""),
+            "email": data.get("email"),
+            "name": data.get("name"),
+            "claimUrl": data.get("claimUrl"),
+            "status": data.get("status", "active"),
+            "claimed": bool(data.get("claimed", False)),
+            "lastUsedAt": _iso_to_dt(data.get("lastUsedAt")),
+        }
+        if existing is None:
+            fields["id"] = data["id"]
+            fields["createdAt"] = datetime.utcnow()
+            s.add(BrowserUseKeyModel(**fields))
+        else:
+            for k, v in fields.items():
+                setattr(existing, k, v)
+        await s.commit()
+    return data
+
+
+async def bu_key_get_active() -> dict | None:
+    """Return the single active BU API key, or None."""
+    async with prisma_session() as s:
+        result = await s.execute(
+            select(BrowserUseKeyModel)
+            .where(BrowserUseKeyModel.status == "active")
+            .order_by(BrowserUseKeyModel.createdAt.desc())
+            .limit(1))
+        row = result.scalars().first()
+        return _bu_key_to_dict(row) if row else None
+
+
+async def bu_key_touch(key_id: str) -> None:
+    async with prisma_session() as s:
+        row = await s.get(BrowserUseKeyModel, key_id)
+        if row:
+            row.lastUsedAt = datetime.utcnow()
+            await s.commit()
+
+
+def _bu_key_to_dict(row: BrowserUseKeyModel) -> dict:
+    return {
+        "id": row.id,
+        "apiKey": row.apiKey,
+        "email": row.email,
+        "name": row.name,
+        "claimUrl": row.claimUrl,
+        "status": row.status,
+        "claimed": row.claimed,
+        "createdAt": _dt_to_iso(row.createdAt),
+        "lastUsedAt": _dt_to_iso(row.lastUsedAt),
     }

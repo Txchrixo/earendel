@@ -5,7 +5,14 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from ...core.domain.enums import ActionStatus, Caller, ExecutionStatus, RepairStatus
-from ...core.domain.entities import RepairProposal
+from ...core.domain.entities import RepairProposal, TypedAction
+from ...core.repair.knowledge_base import (
+    record_outcome as kb_record_outcome,
+    store_repair as kb_store_repair,
+)
+from ...core.repair.knowledge_base import (
+    extract_target_domain, infer_intention, infer_widget_type,
+)
 from ...core.repair.repair_proposer import propose as propose_repair_fn
 from ...infrastructure.llm_client import LLMClient
 from ...modules.executions.repository import get_execution
@@ -58,14 +65,80 @@ async def fetch_repairs() -> list[RepairProposal]:
     return await list_repairs()
 
 
-async def resolve_repair(repair_id: str, decision: str) -> RepairProposal:
-    """Approve / reject / auto-apply a repair proposal."""
+async def resolve_repair(
+    repair_id: str,
+    decision: str,
+    action_registry=None,
+) -> RepairProposal:
+    """Approve / reject / auto-apply a repair proposal.
+
+    Wires the decision back into the cross-client Repair Knowledge Base:
+
+    * ``approved`` / ``auto_applied``:
+        - If the proposal is KB-sourced (``source == "knowledge_base"``),
+          increment the KB entry's success / autoApplied counters — making
+          it even stronger for future queries.
+        - If the proposal is LLM-sourced, ALSO store it in the KB so it's
+          available for future cross-client queries, then record the
+          success outcome on the freshly-stored entry.
+        - Fallback-sourced proposals are NOT auto-stored (their confidence
+          is too low to be useful for other clients).
+    * ``rejected``:
+        - Record a failure on the KB entry (when one exists) so the
+          combined-score ranking can penalize it.
+
+    All KB IO is best-effort: a DB outage never blocks the resolution —
+    the proposal's status is still updated and persisted.
+    """
     if decision not in {"approved", "rejected", "auto_applied"}:
         raise ValidationError(f"invalid repair decision: {decision}")
     proposal = await get_repair(repair_id)
     if proposal is None:
         raise NotFoundError("RepairProposal", repair_id)
     proposal.status = RepairStatus(decision)
+
+    # ---- KB outcome recording (best-effort) ----------------------------
+    source = (proposal.source or "fallback").lower()
+    pattern_key = proposal.patternKey
+
+    if decision in {"approved", "auto_applied"}:
+        auto_applied = decision == "auto_applied"
+        if source == "knowledge_base" and pattern_key:
+            # KB-sourced: just record the outcome (entry already exists).
+            await kb_record_outcome(pattern_key, succeeded=True,
+                                    auto_applied=auto_applied)
+        elif source == "llm":
+            # LLM-sourced approved: store it into the KB so future failures
+            # benefit, then record the success on the freshly-stored entry.
+            # We need the action name to re-infer the (domain, widget,
+            # intention) signature — look it up via the registry when
+            # available. If the registry isn't passed, we fall back to
+            # inferring from the failed selector alone (target_domain /
+            # intention will be "unknown" / "generic", which is still
+            # useful for cross-client matching on the selector itself).
+            action_name = ""
+            if action_registry is not None:
+                try:
+                    action = action_registry.get(proposal.actionId)
+                    if action is not None:
+                        action_name = action.name
+                except Exception:
+                    pass
+            target_domain = extract_target_domain(action_name)
+            widget_type = infer_widget_type(proposal.failedSelector, "")
+            intention = infer_intention(action_name, "")
+            stored_key = await kb_store_repair(
+                proposal, target_domain, widget_type, intention,
+            )
+            if stored_key:
+                proposal.patternKey = stored_key
+                await kb_record_outcome(stored_key, succeeded=True,
+                                        auto_applied=auto_applied)
+    elif decision == "rejected":
+        # Only record a failure when we already have a KB entry to fail.
+        if pattern_key:
+            await kb_record_outcome(pattern_key, succeeded=False)
+
     return await put_repair(proposal)
 
 

@@ -19,7 +19,9 @@ from .core.domain.enums import (
 )
 from .core.domain.value_objects import FieldSchema
 from .core.domain.entities import ActionContract
-from .infrastructure.prisma_repositories import repair_put
+from .infrastructure.prisma_repositories import (
+    discovered_endpoint_put, repair_kb_put, repair_put,
+)
 from .modules.connectors.service import create_connector, fetch_all as fetch_connectors
 from .modules.recordings.repository import put_recording
 from .modules.recordings.simulator import simulate_recording
@@ -316,7 +318,11 @@ async def run(action_registry) -> dict[str, str]:
         "downloadMarketplaceReport(marketplace: string, reportType: string, dateRange: string)",
         "Download a market report via the CoinGecko API.",
         _contract_marketplace_report(),
-        [AdapterType.api, AdapterType.internal_route, AdapterType.browser],
+        # bu_browser is listed here to exercise the OPTIONAL adapter in the
+        # fallback chain — it activates only if api + internal_route + browser
+        # all fail. This is the one seeded action that opts into BU.
+        [AdapterType.api, AdapterType.internal_route, AdapterType.browser,
+         AdapterType.bu_browser, AdapterType.vision],
         AdapterType.api)
     candidates_action = await _build_action(
         pokeapi, "exportNewCandidates",
@@ -467,7 +473,8 @@ async def run(action_registry) -> dict[str, str]:
         candidateLabel='a[data-route="tracking-detail"]',
         confidence=0.88,
         reason="semantically equivalent stable selector after selector drift",
-        status=RepairStatus.pending, detectedAt=datetime.utcnow() - timedelta(hours=4))
+        status=RepairStatus.pending, detectedAt=datetime.utcnow() - timedelta(hours=4),
+        source="llm")
     rep2 = RepairProposal(
         id=new_id("rep"), actionId=invoice_action.id, actionVersion="1.1.0",
         failedSelector='button[data-testid="download-btn"]',
@@ -475,9 +482,137 @@ async def run(action_registry) -> dict[str, str]:
         candidateLabel='button[aria-label="Download invoice"]',
         confidence=0.91,
         reason="repaired after first canary failure; auto-applied by healer",
-        status=RepairStatus.auto_applied, detectedAt=datetime.utcnow() - timedelta(days=1))
+        status=RepairStatus.auto_applied, detectedAt=datetime.utcnow() - timedelta(days=1),
+        source="llm")
     await repair_put(rep1.model_dump(mode="json"))
     await repair_put(rep2.model_dump(mode="json"))
+
+    # 6. DiscoveredEndpoint seeds (Network Discovery — Option B).
+    # Two real-looking internal endpoints harvested from HAR captures,
+    # one for downloadInvoice (finance) and one for checkClaimStatus (healthcare).
+    await discovered_endpoint_put({
+        "id": new_id("dep"),
+        "actionName": "downloadInvoice",
+        "connectorId": stripe.id,
+        "method": "POST",
+        "url": "https://supplier-portal.acme.com/internal/v2/invoices/download",
+        "urlPattern": "*/internal/v2/invoices/download",
+        "bodyTemplate": '{"invoiceId": "{invoiceId}"}',
+        "headersTemplate": '{"X-XSRF-TOKEN": "{xsrf}"}',
+        "cookieEnvVar": "ACME_SESSION_COOKIE",
+        "fieldMapping": '{"invoiceNumber": "invoice_number", "pdfUrl": "download_url", '
+                        '"supplierName": "supplier_name", "amount": "total", '
+                        '"status": "payment_status"}',
+        "responseShape": '{"invoice_number": "string", "download_url": "url", '
+                         '"supplier_name": "string", "total": "number", '
+                         '"payment_status": "string"}',
+        "businessScore": 0.92,
+        "clusterSize": 14,
+        "status": "active",
+        "timesReplayed": 18, "timesSucceeded": 17, "timesFailed": 1,
+        "avgLatencyMs": 142,
+        "discoveredFrom": "har",
+        "lastReplayedAt": datetime.utcnow() - timedelta(hours=2),
+    })
+    await discovered_endpoint_put({
+        "id": new_id("dep"),
+        "actionName": "checkClaimStatus",
+        "connectorId": jsonplaceholder.id,
+        "method": "POST",
+        "url": "https://provider.bluecross.com/internal/v2/claims/check",
+        "urlPattern": "*/internal/v2/claims/check",
+        "bodyTemplate": '{"patientId": "{patientId}", "claimId": "{claimId}"}',
+        "headersTemplate": '{"X-XSRF-TOKEN": "{xsrf}"}',
+        "cookieEnvVar": "BLUECROSS_SESSION_COOKIE",
+        "fieldMapping": '{"status": "claim_status", "denialReason": "denial_reason", '
+                        '"nextStep": "next_step", "lastUpdated": "last_updated"}',
+        "responseShape": '{"claim_status": "string", "denial_reason": "string?", '
+                         '"next_step": "string", "last_updated": "date"}',
+        "businessScore": 0.81,
+        "clusterSize": 9,
+        "status": "active",
+        "timesReplayed": 11, "timesSucceeded": 9, "timesFailed": 2,
+        "avgLatencyMs": 218,
+        "discoveredFrom": "har",
+        "lastReplayedAt": datetime.utcnow() - timedelta(days=1),
+    })
+
+    # 7. RepairKnowledge seeds (Repair Flywheel — Option A).
+    # Two cross-client repair patterns — one LLM-sourced, one manual — both
+    # with enough success_count to be auto-applied by future runs.
+    await repair_kb_put({
+        "id": new_id("rkb"),
+        "patternKey": "finance:button:download:download-btn:download-invoice",
+        "targetDomain": "finance",
+        "widgetType": "button",
+        "intention": "download",
+        "failedSelector": 'button[data-testid="download-btn"]',
+        "repairedSelector": 'button[aria-label="Download invoice"]',
+        "repairedLabel": "Download invoice",
+        "confidence": 0.91,
+        "source": "llm",
+        "successCount": 7,
+        "failureCount": 1,
+        "autoAppliedCount": 3,
+        "status": "active",
+        "lastUsedAt": datetime.utcnow() - timedelta(days=1),
+    })
+    await repair_kb_put({
+        "id": new_id("rkb"),
+        "patternKey": "logistics:button:track:download-btn:tracking-detail",
+        "targetDomain": "logistics",
+        "widgetType": "link",
+        "intention": "navigate",
+        "failedSelector": 'button[data-testid="download-btn"]',
+        "repairedSelector": 'a[data-route="tracking-detail"]',
+        "repairedLabel": "Tracking detail",
+        "confidence": 0.86,
+        "source": "manual",
+        "successCount": 4,
+        "failureCount": 0,
+        "autoAppliedCount": 1,
+        "status": "active",
+        "lastUsedAt": datetime.utcnow() - timedelta(hours=8),
+    })
+    # Two more cross-client seeds using real portal domains (the spec's
+    # canonical examples) so the KB has hits out-of-the-box for the
+    # downloadInvoice (acme.com) and checkClaimStatus (bluecross.com)
+    # workflows. These pattern keys follow the compute_pattern_key format
+    # ``{target_domain}:{widget_type}:{intention}:{failed_selector}``.
+    await repair_kb_put({
+        "id": new_id("rkb"),
+        "patternKey": "acme.com:button:download:button[data-invoice-download]",
+        "targetDomain": "acme.com",
+        "widgetType": "button",
+        "intention": "download",
+        "failedSelector": "button[data-invoice-download]",
+        "repairedSelector": "a[aria-label='Download PDF']",
+        "repairedLabel": "Download PDF",
+        "confidence": 0.92,
+        "source": "llm",
+        "successCount": 5,
+        "failureCount": 1,
+        "autoAppliedCount": 3,
+        "status": "active",
+        "lastUsedAt": datetime.utcnow() - timedelta(hours=3),
+    })
+    await repair_kb_put({
+        "id": new_id("rkb"),
+        "patternKey": "bluecross.com:button:check:button[aria-label='Search claims']",
+        "targetDomain": "bluecross.com",
+        "widgetType": "button",
+        "intention": "check",
+        "failedSelector": "button[aria-label='Search claims']",
+        "repairedSelector": "button#claim-search-btn",
+        "repairedLabel": "Search claims",
+        "confidence": 0.88,
+        "source": "llm",
+        "successCount": 3,
+        "failureCount": 0,
+        "autoAppliedCount": 1,
+        "status": "active",
+        "lastUsedAt": datetime.utcnow() - timedelta(hours=12),
+    })
 
     return {
         invoice_action.name: invoice_action.id,

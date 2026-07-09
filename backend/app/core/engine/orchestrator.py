@@ -61,7 +61,14 @@ class Orchestrator:
         """Execute `action` end-to-end, returning a fully populated Execution."""
         run_id = new_id("run")
         started = datetime.utcnow()
-        chain = list(action.executionMethods) or [AdapterType.api]
+        # Default chain: api → internal_route → browser → bu_browser → vision → human.
+        # bu_browser is OPTIONAL — it only runs when an action explicitly lists
+        # it in executionMethods (or when the chain falls back to this default).
+        chain = list(action.executionMethods) or [
+            AdapterType.api, AdapterType.internal_route,
+            AdapterType.browser, AdapterType.bu_browser,
+            AdapterType.vision, AdapterType.human,
+        ]
         traces: list[TraceEvent] = []
         screenshots: list[str] = []
         outputs: dict | None = None

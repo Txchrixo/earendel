@@ -29,6 +29,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: "actions", label: "Actions", icon: "actions", hint: "Typed action catalog" },
   { id: "executions", label: "Executions", icon: "executions", hint: "Live + historical runs" },
   { id: "monitoring", label: "Monitoring", icon: "monitoring", hint: "Canaries & repairs" },
+  { id: "discovery", label: "Discovery", icon: "globe", hint: "HAR → internal routes" },
+  { id: "repair_kb", label: "Repair KB", icon: "database", hint: "Cross-client repair flywheel" },
   { id: "publishing", label: "Publishing", icon: "publishing", hint: "MCP / REST / SDK" },
   { id: "playground", label: "Playground", icon: "playground", hint: "Call actions as an agent" },
 ];
@@ -43,6 +45,8 @@ const VIEW_META: Record<StudioView, { title: string; subtitle: string }> = {
   "action-detail": { title: "Action detail", subtitle: "Contract, tests, versions, runs" },
   executions: { title: "Executions", subtitle: "Live and historical runs" },
   monitoring: { title: "Monitoring", subtitle: "Canaries, repairs, reliability" },
+  discovery: { title: "Network Discovery", subtitle: "Internal endpoints learned from HAR captures" },
+  repair_kb: { title: "Repair Knowledge Base", subtitle: "Cross-client repair flywheel" },
   publishing: { title: "Publishing", subtitle: "MCP, REST, SDK, webhooks" },
   playground: { title: "Playground", subtitle: "Invoke actions as an agent" },
 };

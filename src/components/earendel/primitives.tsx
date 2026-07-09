@@ -6,6 +6,11 @@ import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Icon, type ErIconName } from "./icon";
 import { SpotIllustration } from "./spot-illustration";
 import type {
@@ -159,8 +164,55 @@ const adapterIcon: Record<AdapterType, ErIconName> = {
   api: "server",
   internal_route: "link",
   browser: "browser",
+  bu_browser: "cloud",
   vision: "eye",
   human: "person",
+};
+
+// Distinct palette + tooltip per adapter. bu_browser uses a purple "optional
+// cloud" treatment so it reads separately from the local browser. Standard
+// adapters keep their existing idle/active styling so existing tests and
+// visual conventions are preserved.
+const adapterStyle: Record<
+  AdapterType,
+  { label: string; active: string; idle: string; tooltip: string }
+> = {
+  api: {
+    label: "api",
+    active: "border-primary bg-primary/15 text-primary",
+    idle: "border-border bg-secondary text-muted-foreground",
+    tooltip: "First-party REST call against the vendor's published API.",
+  },
+  internal_route: {
+    label: "internal route",
+    active: "border-primary bg-primary/15 text-primary",
+    idle: "border-border bg-secondary text-muted-foreground",
+    tooltip: "Discovered internal endpoint replayed with session cookies.",
+  },
+  browser: {
+    label: "browser",
+    active: "border-primary bg-primary/15 text-primary",
+    idle: "border-border bg-secondary text-muted-foreground",
+    tooltip: "Local headless browser replays the recorded click-flow.",
+  },
+  bu_browser: {
+    label: "BU browser",
+    active: "border-chart-1 bg-chart-1/20 text-chart-1",
+    idle: "border-chart-1/40 bg-chart-1/10 text-chart-1/80",
+    tooltip: "Optional — Browser Use cloud: stealth + CAPTCHA + proxies. Activates only when the local browser fails.",
+  },
+  vision: {
+    label: "vision",
+    active: "border-primary bg-primary/15 text-primary",
+    idle: "border-border bg-secondary text-muted-foreground",
+    tooltip: "OmniParser grounded visual parsing when DOM selectors drift.",
+  },
+  human: {
+    label: "human",
+    active: "border-primary bg-primary/15 text-primary",
+    idle: "border-border bg-secondary text-muted-foreground",
+    tooltip: "Escalated to a human operator for authorisation.",
+  },
 };
 
 export function AdapterChip({
@@ -170,18 +222,24 @@ export function AdapterChip({
   adapter: AdapterType;
   active?: boolean;
 }) {
+  const cfg = adapterStyle[adapter];
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 er-caption",
-        active
-          ? "border-primary bg-primary/15 text-primary"
-          : "border-border bg-secondary text-muted-foreground",
-      )}
-    >
-      <Icon name={adapterIcon[adapter]} size={12} aria-hidden />
-      {adapter.replace("_", " ")}
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 er-caption",
+            active ? cfg.active : cfg.idle,
+          )}
+        >
+          <Icon name={adapterIcon[adapter]} size={12} aria-hidden />
+          {cfg.label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-[220px] text-center">
+        {cfg.tooltip}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

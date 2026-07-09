@@ -13,6 +13,8 @@ import { ActionsView } from "@/components/earendel/views/actions-view";
 import { ActionDetailView } from "@/components/earendel/views/action-detail-view";
 import { ExecutionsView } from "@/components/earendel/views/executions-view";
 import { MonitoringView } from "@/components/earendel/views/monitoring-view";
+import { DiscoveryView } from "@/components/earendel/views/discovery-view";
+import { RepairKBView } from "@/components/earendel/views/repair-kb-view";
 import { PublishingView } from "@/components/earendel/views/publishing-view";
 import { PlaygroundView } from "@/components/earendel/views/playground-view";
 
@@ -37,6 +39,10 @@ function CurrentView() {
       return <ExecutionsView />;
     case "monitoring":
       return <MonitoringView />;
+    case "discovery":
+      return <DiscoveryView />;
+    case "repair_kb":
+      return <RepairKBView />;
     case "publishing":
       return <PublishingView />;
     case "playground":

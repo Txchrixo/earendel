@@ -217,3 +217,89 @@ model Review {
   @@index([actionId])
   @@index([status])
 }
+
+// ============ Network Discovery (Option B — the technical moat) ============
+
+/// A network endpoint discovered from HAR capture during recording.
+/// Replayed by the internal_route adapter instead of clicking through the browser.
+/// 10x faster + 10x more reliable than browser automation (per APISENSOR research).
+model DiscoveredEndpoint {
+  id              String   @id @default(cuid())
+  actionName      String
+  connectorId     String?
+  method          String   @default("POST")
+  url             String
+  urlPattern      String   @default("")
+  bodyTemplate    String   @default("{}")
+  headersTemplate String   @default("{}")
+  cookieEnvVar    String   @default("")
+  fieldMapping    String   @default("{}")
+  responseShape   String   @default("{}")
+  businessScore   Float    @default(0.0)
+  clusterSize     Int      @default(1)
+  status          String   @default("active")
+  staleReason     String?
+  timesReplayed   Int      @default(0)
+  timesSucceeded  Int      @default(0)
+  timesFailed     Int      @default(0)
+  avgLatencyMs    Int      @default(0)
+  discoveredFrom  String   @default("har")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lastReplayedAt  DateTime?
+
+  @@index([actionName])
+  @@index([status])
+  @@index([connectorId])
+}
+
+// ============ Repair Flywheel (Option A — the defensive moat) ============
+
+/// Cross-client repair knowledge base entry.
+/// When a repair is approved (LLM or human), it is stored here so that the
+/// NEXT client hitting the same portal + widget pattern gets an instant repair.
+/// This is the network-effect flywheel: every rupture repaired makes the next
+/// one faster for everyone.
+model RepairKnowledge {
+  id              String   @id @default(cuid())
+  patternKey      String
+  targetDomain    String
+  widgetType      String   @default("button")
+  intention       String   @default("download")
+  failedSelector  String
+  repairedSelector String
+  repairedLabel   String
+  confidence      Float    @default(0.85)
+  source          String   @default("llm")
+  successCount    Int      @default(0)
+  failureCount    Int      @default(0)
+  autoAppliedCount Int     @default(0)
+  status          String   @default("active")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lastUsedAt      DateTime?
+
+  @@unique([patternKey])
+  @@index([targetDomain])
+  @@index([widgetType])
+  @@index([intention])
+  @@index([status])
+}
+
+// ============ Browser Use integration (optional adapter) ============
+
+/// Tracks the Browser Use Cloud API key (self-provisioned via challenge-response).
+/// Only one active key per deployment; stored encrypted-at-rest by the vault.
+model BrowserUseKey {
+  id              String   @id @default(cuid())
+  apiKey          String
+  email           String?
+  name            String?
+  claimUrl        String?
+  status          String   @default("active")
+  claimed         Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  lastUsedAt      DateTime?
+
+  @@index([status])
+}

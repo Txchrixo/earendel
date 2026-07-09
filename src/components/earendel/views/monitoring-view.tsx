@@ -31,6 +31,7 @@ import type {
   TimeSeries,
   TypedAction,
   RepairProposal,
+  BUStatus,
 } from "@/lib/earendel/types";
 import {
   StatCard,
@@ -541,6 +542,129 @@ function ReliabilityTrend() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Browser Use provisioning status                                     */
+/* ------------------------------------------------------------------ */
+
+function BUStatusCard() {
+  const { data, loading, error, refetch } = useApi<BUStatus>(
+    () => api.buStatus(),
+    [],
+  );
+  const [busy, setBusy] = React.useState<"provision" | "claim" | null>(null);
+
+  const provision = async () => {
+    setBusy("provision");
+    try {
+      await api.buProvision();
+      toast.success("BU key provisioned", {
+        description: "Browser Use cloud is now available as an optional fallback adapter.",
+      });
+      refetch();
+    } catch {
+      toast.error("Provisioning failed", { description: "Backend unreachable." });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const claim = async () => {
+    setBusy("claim");
+    try {
+      const result = await api.buClaim();
+      if (result.claimUrl) {
+        window.open(result.claimUrl, "_blank", "noopener,noreferrer");
+        toast.success("Claim URL opened", {
+          description: "Complete the challenge in the new tab to provision your key.",
+        });
+      } else {
+        toast.error("No claim URL returned", { description: "Backend response was empty." });
+      }
+    } catch {
+      toast.error("Could not get claim URL", { description: "Backend unreachable." });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const provisioned = data?.provisioned;
+  const lastUsed = data?.lastUsedAt;
+
+  return (
+    <Card className="gap-3 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="grid size-8 place-items-center rounded-md bg-chart-1/15 text-chart-1">
+            <Icon name="cloud" size={16} aria-hidden />
+          </span>
+          <div>
+            <h3 className="er-h3">Browser Use cloud</h3>
+            <p className="er-caption text-muted-foreground">
+              Optional 6th adapter · stealth + CAPTCHA + proxies
+            </p>
+          </div>
+        </div>
+        <Badge
+          className={cn(
+            "border-transparent",
+            provisioned ? "er-pill-success" : "er-pill-neutral",
+          )}
+        >
+          <span
+            className={cn("size-1.5 rounded-full", provisioned ? "bg-accent er-pulse" : "bg-muted-foreground")}
+            aria-hidden
+          />
+          {provisioned ? "Provisioned" : "Not provisioned"}
+        </Badge>
+      </div>
+
+      {error ? (
+        <p className="er-caption text-muted-foreground">Backend connecting…</p>
+      ) : loading ? (
+        <Skeleton className="h-12 w-full" />
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="rounded-md border border-border bg-background/40 p-3">
+            <p className="er-caption text-muted-foreground uppercase tracking-wide mb-1">
+              API key
+            </p>
+            {provisioned && data?.apiKeyMasked ? (
+              <code className="font-mono text-xs text-foreground break-all">
+                {data.apiKeyMasked}
+              </code>
+            ) : (
+              <span className="er-caption text-muted-foreground">— no key provisioned</span>
+            )}
+          </div>
+          <div className="rounded-md border border-border bg-background/40 p-3">
+            <p className="er-caption text-muted-foreground uppercase tracking-wide mb-1">
+              Last used
+            </p>
+            <p className="text-sm text-foreground">{lastUsed ? timeAgo(lastUsed) : "never"}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        {!provisioned && (
+          <Button size="sm" className="rounded-full" onClick={provision} disabled={busy !== null}>
+            <Icon name="key" size={12} aria-hidden />
+            {busy === "provision" ? "Provisioning…" : "Provision key"}
+          </Button>
+        )}
+        <Button size="sm" variant="outline" className="rounded-full" onClick={claim} disabled={busy !== null}>
+          <Icon name="link" size={12} aria-hidden />
+          {busy === "claim" ? "Fetching…" : "Get claim URL"}
+        </Button>
+        <span className="er-caption text-muted-foreground ml-auto">
+          BU is never the default — only used when an action explicitly opts in via{" "}
+          <code className="font-mono text-foreground">executionMethods</code>.
+        </span>
+      </div>
+    </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* MonitoringView                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -563,6 +687,7 @@ export function MonitoringView() {
         <ReliabilityTrend />
       </div>
       <FailureBreakdown />
+      <BUStatusCard />
       <RepairProposals />
 
     </motion.div>

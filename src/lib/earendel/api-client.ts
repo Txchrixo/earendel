@@ -15,6 +15,11 @@ import type {
   ActivityFeed,
   DashboardStats,
   RepairProposal,
+  DiscoveredEndpoint,
+  DiscoveryStats,
+  RepairKnowledgeEntry,
+  RepairKBStats,
+  BUStatus,
 } from "./types";
 
 const BACKEND_PORT = "8001";
@@ -161,6 +166,59 @@ export const api = {
     request<PublishedTool>(`/api/v1/publishing/${actionId}`),
   getMcpRegistry: () =>
     request<McpRegistry>("/api/v1/publishing/registry"),
+
+  // ---- Network Discovery (TRACK-4) ----
+  discoveryStats: () =>
+    request<DiscoveryStats>("/api/v1/discovery/stats"),
+  listDiscoveredEndpoints: (actionName?: string) =>
+    request<{ endpoints: DiscoveredEndpoint[]; total: number }>(
+      "/api/v1/discovery/endpoints",
+      { params: actionName ? { actionName } : undefined },
+    ).then((r) => r.endpoints),
+  getDiscoveredEndpoint: (id: string) =>
+    request<DiscoveredEndpoint>(`/api/v1/discovery/endpoints/${id}`),
+  analyzeHar: (har: unknown, actionName: string, connectorId?: string) =>
+    request<{ created: DiscoveredEndpoint[]; count: number }>(
+      "/api/v1/discovery/analyze",
+      {
+        method: "POST",
+        body: JSON.stringify({ har, actionName, connectorId }),
+      },
+    ).then((r) => r.created),
+  markEndpointStale: (id: string, reason: string) =>
+    request<{ ok: boolean }>(
+      `/api/v1/discovery/endpoints/${id}/mark-stale`,
+      { method: "POST", body: JSON.stringify({ reason }) },
+    ),
+
+  // ---- Repair Knowledge Base (TRACK-5) ----
+  repairKBStats: () =>
+    request<RepairKBStats>("/api/v1/monitoring/repair-kb/stats"),
+  listRepairKB: (targetDomain?: string) =>
+    request<{ entries: RepairKnowledgeEntry[]; total: number }>(
+      "/api/v1/monitoring/repair-kb",
+      { params: targetDomain ? { targetDomain } : undefined },
+    ).then((r) => r.entries),
+  getRepairKBEntry: (id: string) =>
+    request<RepairKnowledgeEntry>(`/api/v1/monitoring/repair-kb/${id}`),
+  deprecateRepairKB: (id: string) =>
+    request<{ ok: boolean }>(
+      `/api/v1/monitoring/repair-kb/${id}/deprecate`,
+      { method: "POST", body: JSON.stringify({}) },
+    ),
+
+  // ---- Browser Use (TRACK-2) ----
+  buStatus: () => request<BUStatus>("/api/v1/bu/status"),
+  buProvision: () =>
+    request<BUStatus>("/api/v1/bu/provision", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  buClaim: () =>
+    request<{ claimUrl: string }>("/api/v1/bu/claim", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
 };
 
 export { ApiError };
