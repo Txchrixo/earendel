@@ -71,6 +71,12 @@ class Orchestrator:
         ]
         traces: list[TraceEvent] = []
         screenshots: list[str] = []
+        # Phase 3: screenshots captured by prior adapters, forwarded to the
+        # next adapter's ExecutionContext so the vision adapter can analyse
+        # pages already captured by the browser adapter (instead of falling
+        # back to simulation). Full file paths only — the browser adapter
+        # converts its filenames to full paths before returning.
+        prior_screenshots: list[str] = []
         outputs: dict | None = None
         chosen: AdapterType = chain[0]
         status = ExecutionStatus.failed
@@ -110,11 +116,22 @@ class Orchestrator:
             ctx = ExecutionContext(
                 caller=caller, risk_approved=risk_approved, run_id=run_id,
                 vault=self._vault, telemetry=self._telemetry,
+                screenshots=prior_screenshots,
             )
             adapter = self._registry.get(adapter_type)
             result: AdapterResult = await adapter.execute(action, inputs, ctx)
             traces.extend(result.traces)
             screenshots.extend(result.screenshots)
+
+            # Collect full screenshot paths for the next adapter in the chain.
+            # The browser adapter returns filenames (e.g. "run-123-step-0.png")
+            # under /tmp/earendel-screenshots/, but we tolerate full paths
+            # too (other adapters may return absolute paths).
+            for shot in result.screenshots:
+                if shot.startswith("/"):
+                    prior_screenshots.append(shot)
+                else:
+                    prior_screenshots.append(f"/tmp/earendel-screenshots/{shot}")
 
             # Emit trace events in real-time.
             for trace in result.traces:
@@ -157,7 +174,9 @@ class Orchestrator:
                     step="escalate"))
                 ctx = ExecutionContext(
                     caller=caller, risk_approved=risk_approved, run_id=run_id,
-                    vault=self._vault, telemetry=self._telemetry)
+                    vault=self._vault, telemetry=self._telemetry,
+                    screenshots=prior_screenshots,
+                )
                 human_result = await self._registry.get(
                     AdapterType.human).execute(action, inputs, ctx)
                 traces.extend(human_result.traces)

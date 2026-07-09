@@ -18,6 +18,7 @@ Academic grounding:
 - ReAPR (retrieval-augmented program repair) — RAG for APR
 - Semter (FSE 2023) — intent abstraction for cross-client transfer
 - Similo (TOSEM 2023) — element-matching features for locator repair
+- WAREX (arXiv:2510.03285, 2025) — LLM self-healing doesn't hold under real instability
 """
 from __future__ import annotations
 

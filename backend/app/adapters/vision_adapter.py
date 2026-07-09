@@ -49,6 +49,19 @@ class VisionAdapter(ExecutionAdapter):
         traces: list[TraceEvent] = []
         start = datetime.utcnow()
 
+        # Phase 3: surface the screenshot hand-off so operators can see when
+        # the vision adapter is re-using a browser-captured page (vs. running
+        # its own capture / simulation).
+        if ctx.screenshots:
+            traces.append(TraceEvent(
+                ts=ts, adapter=AdapterType.vision, level="info",
+                message=(
+                    f"received {len(ctx.screenshots)} screenshot(s) "
+                    f"from prior adapter"
+                ),
+                step="screenshot.handoff", durationMs=0,
+            ))
+
         # Step 1: Capture a screenshot (or use one from the browser adapter).
         traces.append(TraceEvent(
             ts=ts, adapter=AdapterType.vision, level="info",
@@ -68,7 +81,12 @@ class VisionAdapter(ExecutionAdapter):
                     ts=ts, adapter=AdapterType.vision, level="warn",
                     message="VLM unavailable — falling back to simulation",
                     step="parse", durationMs=parse_elapsed))
-                return await self._simulate(action, inputs, ctx)
+                sim = await self._simulate(action, inputs, ctx)
+                # Phase 3: preserve the execute-level traces (screenshot
+                # hand-off, capture, parse attempts) so operators can see
+                # the full picture — same merge pattern as the browser adapter.
+                sim.traces = traces + sim.traces
+                return sim
 
             elements = vlm_result.get("elements", [])
             traces.append(TraceEvent(
@@ -109,18 +127,35 @@ class VisionAdapter(ExecutionAdapter):
                 ts=ts, adapter=AdapterType.vision, level="warn",
                 message=f"VLM error ({exc}) — falling back to simulation",
                 step="parse"))
-            return await self._simulate(action, inputs, ctx)
+            sim = await self._simulate(action, inputs, ctx)
+            sim.traces = traces + sim.traces
+            return sim
 
     async def _call_vlm(
         self, action: TypedAction, inputs: dict, ctx: ExecutionContext
     ) -> dict | None:
-        """Call the z-ai vision CLI to analyze a screenshot.
+        """Call the z-ai vision CLI to analyse a screenshot.
 
-        Returns the parsed JSON response or None on failure.
+        Returns the parsed JSON response or ``None`` on failure.
+
+        Phase 3: prefers screenshots captured by a prior adapter (the
+        browser adapter) and threaded through ``ctx.screenshots`` by the
+        orchestrator. Falls back to the ``EARENDEL_SCREENSHOT_PATH`` env
+        var for backward compatibility with deployments that set it
+        manually. Simulated screenshot paths (which don't exist on disk)
+        are skipped so the vision adapter transparently degrades to its
+        own simulation when the prior adapter didn't produce real pixels.
         """
-        # In production, this would take a real screenshot. For now, we use
-        # a placeholder screenshot path or skip if not available.
-        screenshot_path = os.environ.get("EARENDEL_SCREENSHOT_PATH", "")
+        # Phase 3: pick the most-recent screenshot that actually exists on
+        # disk. Iterate in reverse so we use the latest page state.
+        screenshot_path = ""
+        for path in reversed(ctx.screenshots):
+            if path and os.path.exists(path):
+                screenshot_path = path
+                break
+        # Backward-compat fallback: deployments that set the env var manually.
+        if not screenshot_path:
+            screenshot_path = os.environ.get("EARENDEL_SCREENSHOT_PATH", "")
         if not screenshot_path or not os.path.exists(screenshot_path):
             return None
 

@@ -27,6 +27,11 @@ class ExecutionContext:
     vault: "CredentialVault"
     telemetry: "TraceCollector"
     started_at: datetime = field(default_factory=datetime.utcnow)
+    # Phase 3: screenshots captured by prior adapters (full file paths).
+    # The browser adapter populates this; the vision adapter reads it.
+    # Simulated screenshots (filenames that don't exist on disk) are skipped
+    # by downstream adapters via an ``os.path.exists`` check.
+    screenshots: list[str] = field(default_factory=list)
 
 
 @dataclass

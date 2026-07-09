@@ -56,20 +56,22 @@ _WORKFLOW_REGISTRY: dict[str, list[dict[str, Any]]] = {
         {"type": "click", "selector": "a[data-invoice-download]", "description": "click download"},
         {"type": "download", "description": "wait for PDF download"},
     ],
+    # Phase 3.B: simplified trackShipment workflow targets the real, resolvable
+    # Maersk public tracking page (no login required) so the browser adapter can
+    # execute real Playwright navigation + screenshot against a live site when
+    # the corresponding recording is not available.
     "trackShipment": [
-        {"type": "navigate", "url": "https://my.maersk.com/tracking", "description": "open tracking portal"},
-        {"type": "fill", "selector": "input[name='trackingNumber']", "value": "{trackingNumber}", "description": "enter tracking number"},
-        {"type": "click", "selector": "button[aria-label='Track shipment']", "description": "track shipment"},
-        {"type": "wait", "duration": 800, "description": "wait for results"},
+        {"type": "navigate", "url": "https://www.maersk.com/tracking", "description": "open Maersk tracking page"},
+        {"type": "wait", "duration": 1000, "description": "wait for page load"},
         {"type": "screenshot", "description": "capture tracking page"},
     ],
+    # Phase 3.B: checkClaimStatus now points at JSONPlaceholder, a real
+    # resolvable test portal, so the browser adapter can navigate + screenshot
+    # a live page when no recording is available.
     "checkClaimStatus": [
-        {"type": "navigate", "url": "https://provider.bluecross.com/claims", "description": "open claims portal"},
-        {"type": "fill", "selector": "input[name='patientId']", "value": "{patientId}", "description": "enter patient ID"},
-        {"type": "fill", "selector": "input[name='claimId']", "value": "{claimId}", "description": "enter claim ID"},
-        {"type": "click", "selector": "button[aria-label='Search claims']", "description": "search claims"},
-        {"type": "wait", "duration": 600, "description": "wait for results"},
-        {"type": "screenshot", "description": "capture claims page"},
+        {"type": "navigate", "url": "https://jsonplaceholder.typicode.com", "description": "open test portal"},
+        {"type": "wait", "duration": 500, "description": "wait for page load"},
+        {"type": "screenshot", "description": "capture homepage"},
     ],
     "fillSecurityQuestionnaire": [
         {"type": "navigate", "url": "https://app.drata.com/vendor/secure", "description": "open Drata portal"},
@@ -77,6 +79,28 @@ _WORKFLOW_REGISTRY: dict[str, list[dict[str, Any]]] = {
         {"type": "screenshot", "description": "capture questionnaire page"},
     ],
 }
+
+# Phase 3.B: normalize CapturedStep.type values to the browser adapter's
+# internal step vocabulary. The Chrome extension records ``input`` (and
+# sometimes ``select``) for form-filling actions, while the browser adapter's
+# step handler dispatches on ``fill``. ``assert`` steps (Chrome extension
+# semantics) are treated as ``wait``. ``fill`` is kept as-is for backward
+# compatibility with the hardcoded _WORKFLOW_REGISTRY above.
+_STEP_TYPE_MAP: dict[str, str] = {
+    "input": "fill",      # Chrome extension uses "input", browser adapter uses "fill"
+    "select": "fill",     # select elements are filled the same way
+    "click": "click",
+    "navigate": "navigate",
+    "download": "download",
+    "wait": "wait",
+    "assert": "wait",     # assert steps are treated as waits
+    "fill": "fill",       # backward compat with _WORKFLOW_REGISTRY
+}
+
+
+def _normalize_step_type(step_type: str) -> str:
+    """Normalize step type from CapturedStep to browser adapter vocabulary."""
+    return _STEP_TYPE_MAP.get(step_type, step_type)
 
 # Failure rate for simulation fallback (demonstrates the repair loop).
 _SIM_FAILURE_RATE = 0.15
@@ -93,7 +117,15 @@ def _should_sim_fail(action: TypedAction, inputs: dict) -> bool:
 
 
 def _substitute_value(template: str, inputs: dict, vault: Any) -> str:
-    """Substitute {placeholders} in a step value with actual inputs or vault creds."""
+    """Substitute {placeholders} in a step value with actual inputs or vault creds.
+
+    Phase 3.B bugfix: when the placeholder key matches a password-like field
+    name (``password``, ``passwd``, ``pwd``, ``secret``) and the vault returns
+    a credential record, return the record's ``password`` field (not the
+    ``username`` field). For other keys, the username is returned as before.
+    Falls back to the literal template if neither inputs nor the vault yield a
+    value.
+    """
     if template.startswith("{") and template.endswith("}"):
         key = template[1:-1]
         if key in inputs:
@@ -101,8 +133,11 @@ def _substitute_value(template: str, inputs: dict, vault: Any) -> str:
         # Try vault credentials.
         if vault:
             creds = vault.get(key)
-            if creds and "username" in creds:
-                return creds["username"]
+            if creds:
+                # Return the field matching the key name
+                if key.lower() in ("password", "passwd", "pwd", "secret"):
+                    return creds.get("password", creds.get("username", template))
+                return creds.get("username", template)
         return template
     return template
 
@@ -188,7 +223,10 @@ class BrowserAdapter(ExecutionAdapter):
     async def execute(
         self, action: TypedAction, inputs: dict, ctx: ExecutionContext
     ) -> AdapterResult:
-        workflow = _WORKFLOW_REGISTRY.get(action.name)
+        # Phase 3.B: try to load the workflow from the recording first (real
+        # captured steps), falling back to the hardcoded _WORKFLOW_REGISTRY
+        # for demo/seeded actions that have no recording.
+        workflow = await self._get_workflow(action)
 
         # 1. No registered workflow → simulate immediately.
         if workflow is None:
@@ -232,6 +270,50 @@ class BrowserAdapter(ExecutionAdapter):
                 )
             sim.traces = [err_trace] + sim.traces
             return sim
+
+    async def _get_workflow(
+        self, action: TypedAction,
+    ) -> list[dict[str, Any]] | None:
+        """Get the browser workflow for an action.
+
+        Tries to load from the Recording (real captured steps) first.
+        Falls back to the hardcoded _WORKFLOW_REGISTRY for demo/seeded actions.
+
+        Phase 3.B: the Recording entity stores ``steps: list[CapturedStep]``
+        captured by the Chrome extension. Each CapturedStep is converted to a
+        workflow step dict the browser adapter can dispatch on. Step types are
+        normalized via ``_normalize_step_type`` because the Chrome extension
+        uses ``input`` while the adapter's handler uses ``fill``.
+
+        The recording lookup is best-effort: any failure (recordings module
+        unavailable, DB error, empty DB) silently falls through to the
+        hardcoded registry. This keeps the adapter resilient in demo mode +
+        during tests where the recording table may be empty.
+        """
+        # Try the recording first (Phase 3.B).
+        try:
+            from ..modules.recordings.repository import list_recordings
+            recordings = await list_recordings()
+            for rec in recordings:
+                if rec.compiledActionId == action.id and rec.steps:
+                    # Convert CapturedStep objects to workflow step dicts.
+                    workflow: list[dict[str, Any]] = []
+                    for step in rec.steps:
+                        workflow.append({
+                            "type": _normalize_step_type(step.type),
+                            "selector": step.selector,
+                            "value": step.value,
+                            "url": step.url,
+                            "duration": step.durationMs or 500,
+                            "description": step.description,
+                            "screenshot": step.screenshot,
+                        })
+                    return workflow
+        except Exception:
+            pass  # fall through to hardcoded registry
+
+        # Fall back to hardcoded registry.
+        return _WORKFLOW_REGISTRY.get(action.name)
 
     async def _execute_playwright(
         self, action: TypedAction, inputs: dict, ctx: ExecutionContext,
@@ -308,6 +390,28 @@ class BrowserAdapter(ExecutionAdapter):
                                 url = step["url"]
                                 await page.goto(url, wait_until="domcontentloaded", timeout=10000)
                                 elapsed = int((datetime.utcnow() - step_start).total_seconds() * 1000)
+
+                                # Phase 3.4: CAPTCHA / bot-detection check.
+                                # If the page contains a CAPTCHA or bot-challenge
+                                # iframe, escalate to the BU adapter (which has
+                                # CAPTCHA solving) or human review.
+                                captcha_detected = await self._detect_captcha(page)
+                                if captcha_detected:
+                                    traces.append(TraceEvent(
+                                        ts=ts, adapter=AdapterType.browser, level="warn",
+                                        message=f"CAPTCHA/bot-challenge detected on {url} — escalating",
+                                        step="captcha.detect", durationMs=elapsed,
+                                    ))
+                                    # Close the browser and return failure so the
+                                    # orchestrator falls back to bu_browser / vision / human.
+                                    await browser.close()
+                                    return AdapterResult(
+                                        success=False, outputs={}, traces=traces,
+                                        screenshots=[],
+                                        error=f"CAPTCHA detected on {url} — requires BU adapter or human escalation",
+                                        durationMs=elapsed,
+                                    )
+
                                 traces.append(TraceEvent(
                                     ts=ts, adapter=AdapterType.browser, level="info",
                                     message=f"navigated to {url} ({elapsed}ms)",
@@ -349,7 +453,10 @@ class BrowserAdapter(ExecutionAdapter):
                                 shot_path = os.path.join(_SCREENSHOT_DIR, shot_name)
                                 try:
                                     await page.screenshot(path=shot_path, full_page=False)
-                                    screenshots.append(shot_name)
+                                    # Phase 3: return the FULL path so the
+                                    # orchestrator can hand it to the vision
+                                    # adapter (which checks os.path.exists).
+                                    screenshots.append(shot_path)
                                     traces.append(TraceEvent(
                                         ts=ts, adapter=AdapterType.browser, level="info",
                                         message="screenshot captured",
@@ -451,6 +558,62 @@ class BrowserAdapter(ExecutionAdapter):
             sim = await self._simulate(action, inputs, ctx)
             sim.traces = traces + sim.traces
             return sim
+
+    async def _detect_captcha(self, page: Any) -> bool:
+        """Detect CAPTCHA or bot-challenge elements on the page.
+
+        Checks for common CAPTCHA providers (reCAPTCHA, hCaptcha, Cloudflare
+        Turnstile, DataDome) and bot-challenge text patterns. Returns True if
+        any CAPTCHA signal is found.
+
+        Academic grounding:
+        - Halligan (USENIX Security 2025) — VLM-based CAPTCHA solving
+        - Oedipus (CCS 2025) — LLM reasoning CAPTCHA solving
+        - Taming the Shape Shifter (DIMVA 2020) — anti-detect detection
+        """
+        try:
+            # Check for CAPTCHA iframes and elements via JavaScript.
+            result = await page.evaluate("""
+                () => {
+                    const signals = [];
+                    // reCAPTCHA
+                    if (document.querySelector('iframe[src*="recaptcha"]') ||
+                        document.querySelector('.g-recaptcha') ||
+                        document.querySelector('#g-recaptcha-response')) {
+                        signals.push('recaptcha');
+                    }
+                    // hCaptcha
+                    if (document.querySelector('iframe[src*="hcaptcha"]') ||
+                        document.querySelector('.h-captcha')) {
+                        signals.push('hcaptcha');
+                    }
+                    // Cloudflare Turnstile / challenge
+                    if (document.querySelector('iframe[src*="challenges.cloudflare.com"]') ||
+                        document.querySelector('.cf-turnstile') ||
+                        document.querySelector('#cf-challenge-running') ||
+                        document.title.toLowerCase().includes('just a moment')) {
+                        signals.push('cloudflare');
+                    }
+                    // DataDome
+                    if (document.querySelector('iframe[src*="datadome"]') ||
+                        document.querySelector('#datadome')) {
+                        signals.push('datadome');
+                    }
+                    // Generic bot-detection text
+                    const bodyText = (document.body?.innerText || '').toLowerCase();
+                    if (bodyText.includes('are you a robot') ||
+                        bodyText.includes('verify you are human') ||
+                        bodyText.includes('bot detection') ||
+                        bodyText.includes('access denied') && bodyText.includes('bot')) {
+                        signals.push('bot_challenge_text');
+                    }
+                    return signals;
+                }
+            """)
+            return bool(result) and len(result) > 0
+        except Exception:
+            # If the JS evaluation fails, don't block execution — assume no CAPTCHA.
+            return False
 
     async def _extract_outputs(self, page: Any, action: TypedAction) -> dict:
         """Find DOM elements matching each contract output field and coerce values.
