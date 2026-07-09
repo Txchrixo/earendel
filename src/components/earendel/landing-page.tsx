@@ -42,24 +42,38 @@ const STATS = [
 export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
   const router = useRouter();
 
-  // Nav: transparent at top, solid (bg + border) on scroll
+  // Nav: transparent at top, solid bg on scroll (no border ever)
   React.useEffect(() => {
     const nav = document.getElementById("landing-nav");
     if (!nav) return;
     const onScroll = () => {
       if (window.scrollY > 20) {
-        nav.style.background = "var(--background)";
-        nav.style.borderBottom = "1px solid var(--border)";
-        nav.style.backdropFilter = "blur(8px)";
+        nav.style.background = "rgba(31, 26, 23, 0.85)";
+        nav.style.backdropFilter = "blur(12px)";
       } else {
         nav.style.background = "transparent";
-        nav.style.borderBottom = "none";
         nav.style.backdropFilter = "none";
       }
     };
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Animated mouse-follow glow on the hero
+  const heroRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    const hero = heroRef.current;
+    if (!hero) return;
+    const onMove = (e: MouseEvent) => {
+      const rect = hero.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * 100;
+      const y = ((e.clientY - rect.top) / rect.height) * 100;
+      hero.style.setProperty("--mx", `${x}%`);
+      hero.style.setProperty("--my", `${y}%`);
+    };
+    hero.addEventListener("mousemove", onMove);
+    return () => hero.removeEventListener("mousemove", onMove);
   }, []);
 
   const handleDemo = async () => {
@@ -96,36 +110,61 @@ export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
         </div>
       </nav>
 
-      {/* Hero — halftone pattern background, immersive headline, preview window */}
-      <section className="relative overflow-hidden pt-14">
-        {/* Halftone pattern background — visible dots in Earendel palette */}
+      {/* Hero — interactive animated background */}
+      <section ref={heroRef} className="relative overflow-hidden pt-14" style={{ "--mx": "50%", "--my": "30%" } as React.CSSProperties}>
+        {/* Animated grid that reacts to mouse position */}
         <div
-          className="absolute inset-0"
+          className="absolute inset-0 transition-all duration-300 ease-out"
           style={{
             backgroundImage: `
-              radial-gradient(circle, rgba(107,88,118,0.35) 1.5px, transparent 2px),
-              radial-gradient(circle, rgba(122,133,72,0.25) 1px, transparent 1.5px)
+              linear-gradient(rgba(66, 64, 61, 0.4) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(66, 64, 61, 0.4) 1px, transparent 1px)
             `,
-            backgroundSize: "18px 18px, 26px 26px",
-            backgroundPosition: "0 0, 9px 9px",
-            maskImage: "radial-gradient(ellipse 85% 70% at 50% 30%, rgba(0,0,0,1) 0%, rgba(0,0,0,0.5) 50%, transparent 100%)",
-            WebkitMaskImage: "radial-gradient(ellipse 85% 70% at 50% 30%, rgba(0,0,0,1) 0%, rgba(0,0,0,0.5) 50%, transparent 100%)",
+            backgroundSize: "48px 48px",
+            maskImage: `radial-gradient(circle 600px at var(--mx) var(--my), rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.3) 40%, transparent 70%)`,
+            WebkitMaskImage: `radial-gradient(circle 600px at var(--mx) var(--my), rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.3) 40%, transparent 70%)`,
           }}
           aria-hidden
         />
 
-        {/* Large ambient glow — primary + accent */}
+        {/* Mouse-follow glow — primary purple */}
         <div
-          className="absolute left-1/2 top-0 h-[500px] w-[800px] -translate-x-1/2 opacity-20"
+          className="absolute inset-0 transition-all duration-500 ease-out"
           style={{
-            background: "radial-gradient(ellipse at center, rgba(107,88,118,0.4) 0%, transparent 60%)",
+            background: `radial-gradient(circle 500px at var(--mx) var(--my), rgba(107, 88, 118, 0.12) 0%, transparent 50%)`,
           }}
           aria-hidden
         />
+
+        {/* Floating orbs — slow drift animation */}
+        <motion.div
+          className="absolute left-[10%] top-[15%] h-32 w-32 rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(107,88,118,0.15) 0%, transparent 70%)" }}
+          animate={{ x: [0, 30, 0], y: [0, -20, 0] }}
+          transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
+          aria-hidden
+        />
+        <motion.div
+          className="absolute right-[15%] top-[25%] h-40 w-40 rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(122,133,72,0.12) 0%, transparent 70%)" }}
+          animate={{ x: [0, -25, 0], y: [0, 15, 0] }}
+          transition={{ duration: 15, repeat: Infinity, ease: "easeInOut" }}
+          aria-hidden
+        />
+        <motion.div
+          className="absolute left-[60%] top-[10%] h-24 w-24 rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(201,166,107,0.1) 0%, transparent 70%)" }}
+          animate={{ x: [0, 20, 0], y: [0, 25, 0] }}
+          transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
+          aria-hidden
+        />
+
+        {/* Subtle dot pattern overlay */}
         <div
-          className="absolute right-0 top-[200px] h-[400px] w-[600px] opacity-15"
+          className="absolute inset-0 opacity-30"
           style={{
-            background: "radial-gradient(ellipse at center, rgba(122,133,72,0.3) 0%, transparent 60%)",
+            backgroundImage: `radial-gradient(circle, rgba(232,224,212,0.06) 1px, transparent 1.5px)`,
+            backgroundSize: "20px 20px",
           }}
           aria-hidden
         />
