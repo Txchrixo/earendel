@@ -1,0 +1,12 @@
+[execution-stream] Installing dependencies...
+bun install v1.3.14 (0d9b296a)
+
++ socket.io@4.8.3
+
+22 packages installed [300.00ms]
+[execution-stream] Running bun run dev...
+$ bun --hot index.ts
+Earendel Execution Stream running on port 3003
+  WebSocket: ws://localhost:3003/
+  Health:    GET http://localhost:3003/health
+  Emit:      POST http://localhost:3003/emit

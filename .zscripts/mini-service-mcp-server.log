@@ -1,0 +1,12 @@
+[mcp-server] Installing dependencies...
+bun install v1.3.14 (0d9b296a)
+
++ @modelcontextprotocol/sdk@1.29.0
+
+92 packages installed [522.00ms]
+[mcp-server] Running bun run dev...
+$ bun --hot index.ts
+Earendel MCP Server running on port 3004
+  JSON-RPC: POST http://localhost:3004/mcp
+  SSE:      GET  http://localhost:3004/sse
+  Health:   GET  http://localhost:3004/health
