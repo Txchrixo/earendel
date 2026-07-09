@@ -15,53 +15,80 @@
 ## Table of Contents
 
 1. [Abstract (TL;DR)](#1-abstract--tldr)
-2. [Architecture Overview](#2-architecture-overview)
-3. [The 6-Adapter Fallback Chain](#3-the-6-adapter-fallback-chain)
-4. [Network Discovery (Option B — the technical moat)](#4-network-discovery-option-b--the-technical-moat)
-5. [Repair Flywheel (Option A — the defensive moat)](#5-repair-flywheel-option-a--the-defensive-moat)
-6. [Typed Action Contracts](#6-typed-action-contracts)
-7. [Versioning & Canary Monitoring](#7-versioning--canary-monitoring)
-8. [MCP Integration](#8-mcp-integration)
-9. [Comparison with Browser Use / Browserbase / Skyvern](#9-comparison-with-browser-use--browserbase--skyvern)
-10. [The "Knowns" Analysis (Rumsfeld Matrix)](#10-the-knowns-analysis-rumsfeld-matrix)
-11. [Production Deployment](#11-production-deployment)
-12. [API Reference](#12-api-reference)
-13. [Technology Stack](#13-technology-stack)
-14. [What's Real vs Simulated (Honesty Section)](#14-whats-real-vs-simulated-honesty-section)
-15. [License & Acknowledgments](#15-license--acknowledgments)
+2. [Screenshots](#2-screenshots)
+3. [Architecture Overview](#3-architecture-overview)
+4. [The 6-Adapter Fallback Chain](#4-the-6-adapter-fallback-chain)
+5. [Network Discovery (Option B — the technical moat)](#5-network-discovery-option-b--the-technical-moat)
+6. [Repair Flywheel (Option A — the defensive moat)](#6-repair-flywheel-option-a--the-defensive-moat)
+7. [Typed Action Contracts](#7-typed-action-contracts)
+8. [Versioning & Canary Monitoring](#8-versioning--canary-monitoring)
+9. [MCP Integration](#9-mcp-integration)
+10. [Comparison with Browser Use / Browserbase / Skyvern](#10-comparison-with-browser-use--browserbase--skyvern)
+11. [The "Knowns" Analysis (Rumsfeld Matrix)](#11-the-knowns-analysis-rumsfeld-matrix)
+12. [Production Deployment](#12-production-deployment)
+13. [API Reference](#13-api-reference)
+14. [Technology Stack](#14-technology-stack)
+15. [What's Real vs Simulated](#15-whats-real-vs-simulated)
+16. [Research Foundation — Papers by Problem](#16-research-foundation--papers-by-problem)
+17. [Research Foundation Summary](#17-research-foundation-summary)
+18. [License & Acknowledgments](#18-license--acknowledgments)
 
 ---
 
 ## 1. Abstract (TL;DR)
 
-AI agents are now good enough to handle real business work — downloading invoices, tracking shipments, checking claim status, reconciling vendor portals. The bottleneck is no longer reasoning. It is **interaction**: agents must drive business portals that were designed for humans. The dominant solutions on the market — Browser Use, Browserbase, Skyvern — all do the same thing: **an LLM at every step**. The agent opens a browser, looks at the page, decides what to click, looks again, decides what to type, looks again. Each step takes 2–5 seconds, costs $0.05–0.50 per run in LLM tokens, and is fragile to any UI change. Per-step reliability is around 85%, which compounds badly: over a 10-step workflow, success drops to roughly 20%. The LLM is paying for the privilege of being wrong in a hundred small ways.
+AI agents are now good enough to handle real business work — downloading invoices, tracking shipments, checking claim status, reconciling vendor portals. The bottleneck is no longer reasoning. It is **interaction**: agents must drive portals designed for humans. Dominant solutions (Browser Use, Browserbase, Skyvern) all use an **LLM at every step** — 2–5 s per step, $0.05–0.50 per run, fragile to any UI change. Per-step reliability of ~85% compounds badly: a 10-step workflow drops to ~20% success.
 
-**Earendel takes a different bet.** It treats workflows as programs to be **compiled**, not interpreted. A human records an authorized workflow once (DOM events, network traffic, screenshots, HAR). An LLM is used **once**, at compile time, to infer a typed action contract: inputs, outputs, preconditions, postconditions. The compiled action then runs **deterministically**, with **zero LLM calls at runtime** in the happy path. When something does rupture, the LLM is invoked again — but only at repair time, and the repair is stored in a knowledge base so the same rupture never costs an LLM call again.
+**Earendel takes a different bet.** It treats workflows as programs to be **compiled**, not interpreted. A human records an authorized workflow once (DOM events, network traffic, screenshots, HAR). An LLM is used **once**, at compile time, to infer a typed action contract. The compiled action then runs **deterministically**, with **zero LLM calls at runtime** in the happy path. When something ruptures, the LLM is invoked only at repair time, and the repair is stored in a knowledge base so the same rupture never costs an LLM call again.
 
-At runtime, Earendel does not commit to a single execution strategy. Every action runs through a **6-adapter fallback chain**: official API → discovered internal route → local browser → Browser Use cloud (optional) → vision → human review. The orchestrator tries the fastest, cheapest, most reliable adapter first; if postconditions are not met, it silently falls back to the next. This is the **API-first moat**: most actions never touch a browser at all.
-
-The two compounding advantages are the heart of the project. **Network Discovery (Option B)** captures HTTP traffic during recording, clusters it, scores each candidate endpoint for business relevance, and stores the top 3 in a `DiscoveredEndpoint` table. At runtime, the `internal_route` adapter replays the discovered endpoint directly — 120 ms, $0, no selectors to break. Compared to a browser-only competitor, this is roughly **10× faster, 10× more reliable, and 500× cheaper**. The APISENSOR research reports **95.92% precision** in endpoint discovery from network traffic, which is the floor we design to. **Repair Flywheel (Option A)** stores every approved repair in a cross-client knowledge base. When Client B hits the same portal + widget pattern that Client A already repaired, the KB returns the fix instantly — no LLM call, no human review. Every rupture repaired makes the next one free. This is a classic **data network effect**: more clients → more ruptures → more KB entries → faster repairs → happier clients → more clients.
+Every action runs through a **6-adapter fallback chain**: official API → discovered internal route → local browser → Browser Use cloud (optional) → vision → human review. The two compounding moats: **Network Discovery (Option B)** — 10× faster, 10× more reliable, 500× cheaper than browser-only — and the **Repair Flywheel (Option A)** — a cross-client KB where every rupture repaired makes the next one free.
 
 > **Browser Use lets agents browse. Earendel makes browsing unnecessary.**
 
 ---
 
-## 2. Architecture Overview
+## 2. Screenshots
 
-Earendel is a four-service system sitting behind a Caddy gateway. The frontend is a Next.js 16 single-page Studio. The backend is a FastAPI modular monolith. A tiny MCP server (TypeScript) and a Socket.io execution-stream service (TypeScript) round out the runtime. State lives in SQLite via Prisma (production-ready: switch the provider to PostgreSQL by changing one line in `prisma/schema.prisma`).
+### Landing Page
+
+![Earendel Landing Page](screenshots/01-landing.png)
+
+*The landing page — "Record workflows. Compile to actions. Let agents call them."*
+
+### Studio Views
+
+| View | Screenshot | Description |
+|------|------------|-------------|
+| Dashboard | <img src="screenshots/02-dashboard.png" width="300"> | Pipeline overview, recent executions, activity feed |
+| Connectors | <img src="screenshots/03-connectors.png" width="300"> | Authorised app bridges (Acme Finance, Maersk, BlueCross…) |
+| Recorder | <img src="screenshots/04-recorder.png" width="300"> | Chrome-extension workflow capture (DOM + HAR + screenshots) |
+| Actions | <img src="screenshots/05-actions.png" width="300"> | Catalog of typed, versioned, published actions |
+| Executions | <img src="screenshots/06-executions.png" width="300"> | Recent runs with adapter traces and postcondition results |
+| Monitoring | <img src="screenshots/07-monitoring.png" width="300"> | Canary health, repair queue, Browser Use status |
+| Discovery | <img src="screenshots/08-discovery.png" width="300"> | Discovered internal endpoints ranked by business score |
+| Repair KB | <img src="screenshots/09-repair-kb.png" width="300"> | Cross-client repair knowledge base + MTTR trend |
+| Publishing | <img src="screenshots/10-publishing.png" width="300"> | Publish actions as MCP / REST / SDK / webhook |
+| Playground | <img src="screenshots/11-playground.png" width="300"> | Call actions as an agent would; inspect traces |
+| Action Detail | <img src="screenshots/12-action-detail.png" width="300"> | Contract, version history, recent execution traces |
+
+---
+
+## 3. Architecture Overview
+
+Earendel is a four-service system behind a Caddy gateway: Next.js 16 Studio (frontend), FastAPI modular monolith (backend), MCP server (TypeScript), and a Socket.io execution-stream service. State lives in SQLite via Prisma (production-ready: switch to PostgreSQL by changing one line in `prisma/schema.prisma`).
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │                        AI Agent (Claude, Cursor, ...)                │
 │                     calls via MCP / REST / SDK                       │
-└──────────────────────────────┬───────────────────────────────────────┘
+└──────────────────────────────────────────────────────┬───────────────┘
                                │
                                ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │                        Earendel Studio (Next.js :3000)               │
 │  Dashboard · Connectors · Recorder · Actions · Executions ·          │
 │  Monitoring · Discovery · Repair KB · Publishing · Playground        │
-└──────────────────────────────┬───────────────────────────────────────┘
+└──────────────────────────────────────────────────────┬───────────────┘
                                │ Caddy gateway (?XTransformPort=)
                                ▼
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -121,20 +148,20 @@ Earendel is a four-service system sitting behind a Caddy gateway. The frontend i
 | Port | Service | Stack | Purpose |
 |------|---------|-------|---------|
 | 3000 | Earendel Studio | Next.js 16 / React 19 / TypeScript | Single-page dashboard, recorder UI, action catalog, monitoring, discovery, repair KB |
-| 8001 | Orchestrator | FastAPI / Python 3.12 / Pydantic 2 | Core domain: typed actions, 6-adapter chain, validation, repair, versioning, modules |
-| 3003 | Execution Stream | Node + Socket.io | Real-time per-execution trace streaming to the Studio |
-| 3004 | MCP Server | Node + @modelcontextprotocol/sdk | JSON-RPC 2.0 `tools/list` + `tools/call` to the agent ecosystem |
-| 81   | Caddy gateway | Caddy 2 | Single entry point, `?XTransformPort=N` query selects the backend |
+| 8001 | Orchestrator | FastAPI / Python 3.12 / Pydantic 2 | Typed actions, 6-adapter chain, validation, repair, versioning |
+| 3003 | Execution Stream | Node + Socket.io | Real-time per-execution trace streaming |
+| 3004 | MCP Server | Node + @modelcontextprotocol/sdk | JSON-RPC 2.0 `tools/list` + `tools/call` |
+| 81   | Caddy gateway | Caddy 2 | Single entry point, `?XTransformPort=N` selects backend |
 
 ### The `?XTransformPort=` gateway pattern
 
-Every cross-origin request from the browser goes through Caddy on port 81. The frontend picks the target service by setting a query parameter — e.g. `GET /api/v1/actions?XTransformPort=8001` reaches FastAPI, `GET /socket.io/?XTransformPort=3003` reaches the execution stream, `POST /mcp?XTransformPort=3004` reaches the MCP server. Caddy's `reverse_proxy localhost:{query.XTransformPort}` directive handles the routing. This keeps CORS, TLS, and host rewriting in exactly one place.
+Every cross-origin browser request goes through Caddy on port 81. The frontend picks the target via query parameter (`?XTransformPort=8001` → FastAPI, `=3003` → execution stream, `=3004` → MCP). Caddy's `reverse_proxy localhost:{query.XTransformPort}` directive handles routing, keeping CORS, TLS, and host rewriting in one place.
 
 ---
 
-## 3. The 6-Adapter Fallback Chain
+## 4. The 6-Adapter Fallback Chain
 
-Every typed action runs through the same chain. The orchestrator tries adapters in order; between each, it validates postconditions. If postconditions fail — or the adapter explicitly returns `{_humanReview: true}` or an exception — the orchestrator moves on. The chain is **fail-soft by design**: no adapter ever raises out of the orchestrator. Errors become trace events.
+Every typed action runs through the same chain. The orchestrator tries adapters in order; between each, it validates postconditions. If postconditions fail — or the adapter returns `{_humanReview: true}` or an exception — the orchestrator moves on. The chain is **fail-soft by design**: no adapter ever raises out of the orchestrator; errors become trace events.
 
 | # | Adapter | Type | Latency | Cost/Run | When it fires |
 |---|---------|------|---------|----------|---------------|
@@ -147,87 +174,44 @@ Every typed action runs through the same chain. The orchestrator tries adapters 
 
 ### Design principle: BU is NEVER the default
 
-Browser Use Cloud is genuinely useful for the ~5% of workflows that need stealth browsers, CAPTCHA solving, or geo-distributed proxies. But it is also the slowest, most expensive, and least deterministic adapter. So we made a deliberate architectural choice: **BU sits between local browser and vision, and is activated only when both of these conditions hold**:
-
-1. The action explicitly lists `bu_browser` in its `executionMethods` array, AND
-2. The local `browser` adapter has already failed (returned an error or failed postconditions).
-
-This preserves Earendel's API-first moat — the median action never touches BU, never pays for BU, never depends on BU's uptime — while still giving us the capability for the long tail of hostile-portal workflows. Operators provision a BU API key from the Monitoring view (the BU adapter self-provisions via a challenge-response signup flow on first use). If no key is provisioned, the adapter is silently skipped and the chain proceeds to `vision`.
+BU is genuinely useful for the ~5% of workflows needing stealth, CAPTCHA, or geo-distributed proxies, but it's the slowest, most expensive, least deterministic adapter. **BU activates only when both hold:** (1) the action explicitly lists `bu_browser` in its `executionMethods`, AND (2) the local `browser` adapter has already failed. This preserves the API-first moat — the median action never touches BU. Operators provision a BU API key from the Monitoring view; if absent, the adapter is silently skipped.
 
 ### Adapter selection policy
 
-The orchestrator computes the chain per action:
-
-```
-chain = [preferred_adapter] + [remaining adapters in default order]
-
-default_order = [api, internal_route, browser, bu_browser, vision, human]
-
-filter chain by:
-  - executionMethods on the action (skip adapters not opted in)
-  - risk gating (high-risk actions skip to human after first failure)
-  - BU key availability (skip bu_browser if not provisioned)
-
-after each adapter:
-  - validate postconditions
-  - if pass → return result
-  - if fail with { _humanReview: true } → return result (human takes responsibility)
-  - if fail otherwise → continue to next adapter, log rupture
-```
+The orchestrator computes the chain per action: `chain = [preferred_adapter] + [api, internal_route, browser, bu_browser, vision, human]`, filtered by the action's `executionMethods`, risk gating (high-risk actions skip to human after first failure), and BU key availability. After each adapter: validate postconditions → pass returns result; `_humanReview: true` returns to human; otherwise continue to next adapter and log rupture.
 
 ### Risk gating
 
-Actions carry a `riskLevel` ∈ {`low`, `medium`, `high`, `critical`}. The orchestrator's risk policy treats `critical` actions as human-required even on success: they run through the chain, but the result is queued for human confirmation before being returned to the agent. This is the guardrail that lets us expose typed actions to autonomous agents without letting them, say, submit a $50,000 payment at 3 AM.
+Actions carry a `riskLevel` ∈ {`low`, `medium`, `high`, `critical`}. `critical` actions are human-required even on success: they run through the chain, but the result is queued for human confirmation before being returned to the agent. This is the guardrail that lets us expose typed actions to autonomous agents without letting them submit a $50,000 payment at 3 AM.
 
 ---
 
-## 4. Network Discovery (Option B — the technical moat)
+## 5. Network Discovery (Option B — the technical moat)
 
-The `internal_route` adapter is where Earendel earns its keep. Instead of clicking through a portal, we replay the portal's own internal HTTP endpoints — the same ones its JavaScript calls under the hood. We discover those endpoints by capturing HAR (HTTP Archive) traffic during the recording phase.
+The `internal_route` adapter is where Earendel earns its keep. Instead of clicking through a portal, we replay the portal's own internal HTTP endpoints — the same ones its JavaScript calls under the hood. We discover them by capturing HAR (HTTP Archive) traffic during recording.
 
 ### The three-phase flow
 
-```
-RECORDING PHASE:
-  User records workflow in Chrome extension
-    → Chrome captures HAR (HTTP Archive)
-    → Earendel stores HAR with the Recording
+**Recording phase**
+- User records workflow in Chrome extension → Chrome captures HAR → Earendel stores HAR with the Recording.
 
-COMPILATION PHASE:
-  LLM analyzes recorded steps → generates TypedAction (contract)
-  Earendel analyzes HAR:
-    1. Filter out static assets (.js, .css, images, analytics)
-    2. Cluster by (method, normalized path pattern)
-    3. Score each cluster by business relevance:
-       +0.3 POST / PUT / PATCH
-       +0.2 JSON response
-       +0.2 response body contains action keywords
-       +0.15 HTTP 200
-       +0.1 API-like path (/api/, /internal/, /v1/)
-       +0.05 has request body
-    4. Infer field mapping (response keys → contract fields)
-       - exact match
-       - snake_case ↔ camelCase
-       - synonyms (download_url ↔ pdfUrl, total ↔ amount)
-    5. Infer cookie env var (acme.com → ACME_SESSION_COOKIE)
-    6. Store top-3 candidates in DiscoveredEndpoint table
+**Compilation phase**
+- LLM analyzes recorded steps → generates TypedAction (contract).
+- Earendel analyzes HAR:
+  1. Filter out static assets (.js, .css, images, analytics).
+  2. Cluster by (method, normalized path pattern).
+  3. Score by business relevance: `+0.3` POST/PUT/PATCH · `+0.2` JSON response · `+0.2` action keywords in body · `+0.15` HTTP 200 · `+0.1` API-like path (`/api/`, `/internal/`, `/v1/`) · `+0.05` has request body.
+  4. Infer field mapping (response keys → contract fields): exact, snake_case ↔ camelCase, synonyms.
+  5. Infer cookie env var (acme.com → `ACME_SESSION_COOKIE`).
+  6. Store top-3 candidates in `DiscoveredEndpoint` table.
 
-RUNTIME PHASE:
-  internal_route adapter:
-    → query DiscoveredEndpoint WHERE actionName = X AND status = active
-    → get the highest-scoring endpoint
-    → build request from bodyTemplate (substitute {inputKey} placeholders)
-    → attach session cookie from env var
-    → make HTTP call (120–140 ms)
-    → map response via fieldMapping
-    → validate postconditions
-    → on 404/410: mark endpoint stale, fall back
-    → on success: record replay outcome (success/failure/latency)
-```
+**Runtime phase**
+- `internal_route` adapter queries `DiscoveredEndpoint` for `actionName = X AND status = active`, picks highest-scoring endpoint, builds request from `bodyTemplate`, attaches session cookie, makes HTTP call (120–140 ms), maps response via `fieldMapping`, validates postconditions.
+- On 404/410: mark endpoint stale, fall back to next adapter. On success: record replay outcome.
 
 ### Why this is the moat
 
-Browser Use, Browserbase, and Skyvern are 100% browser. When an agent wants to download an invoice, they open a browser, navigate, click, wait — 2–5 s per step, $0.05/run in LLM tokens, fragile to any selector change. Earendel captures the network traffic during recording, discovers that the portal has an internal `/api/v2/invoices/download` endpoint, and replays it directly — 120 ms, $0, no selectors to break. The headline numbers:
+Browser Use, Browserbase, and Skyvern are 100% browser — 2–5 s per step, $0.05/run, fragile to any selector change. Earendel captures network traffic during recording, discovers an internal endpoint like `/api/v2/invoices/download`, and replays it directly — 120 ms, $0, no selectors to break.
 
 - **10× faster** (120 ms vs 1.5 s typical browser-equivalent)
 - **10× more reliable** (no DOM selectors to break against)
@@ -235,7 +219,7 @@ Browser Use, Browserbase, and Skyvern are 100% browser. When an agent wants to d
 
 ### Research floor
 
-The APISENSOR paper reports **95.92% precision** in endpoint discovery from network traffic. We design to that floor: the scorer is deliberately conservative (only top-3 candidates are stored, only ones scoring above 0.5 are activated), and any 4xx/5xx replay outcome marks the endpoint stale and triggers re-discovery on the next recording.
+The APISENSOR paper reports **95.92% precision** in endpoint discovery from network traffic. The scorer is conservative (only top-3 candidates stored, only ones scoring above 0.5 activated); any 4xx/5xx replay outcome marks the endpoint stale and triggers re-discovery on the next recording.
 
 ### DiscoveredEndpoint schema (Prisma)
 
@@ -270,19 +254,13 @@ model DiscoveredEndpoint {
 
 ### Field mapping inference
 
-The trickiest piece is step 4 — inferring how response keys map to the action's contract output fields. The analyzer tries three strategies in order:
-
-1. **Exact match** — `invoice_number` in response maps to `invoiceNumber` field (case-insensitive equality after normalization).
-2. **Case-normalized match** — `download_url` ↔ `downloadUrl` (snake_case ↔ camelCase conversion).
-3. **Synonym match** — a small dictionary of business synonyms (`download_url` ↔ `pdfUrl`, `total` ↔ `amount`, `status` ↔ `state`, `id` ↔ `{entity}Id`).
-
-If a contract field has no mapping, the analyzer marks the endpoint as **partial** (still stored, but flagged in the UI), and the orchestrator will validate postconditions strictly — if any required output is missing, the adapter falls through to the next in the chain.
+The analyzer tries three strategies in order: (1) **exact match** (`invoice_number` ↔ `invoiceNumber`); (2) **case-normalized** (`download_url` ↔ `downloadUrl`); (3) **synonym dictionary** (`download_url` ↔ `pdfUrl`, `total` ↔ `amount`, `status` ↔ `state`, `id` ↔ `{entity}Id`). If a contract field has no mapping, the endpoint is marked **partial** — stored but flagged in the UI. The orchestrator validates postconditions strictly; missing required output falls through to the next adapter.
 
 ---
 
-## 5. Repair Flywheel (Option A — the defensive moat)
+## 6. Repair Flywheel (Option A — the defensive moat)
 
-Discovery gives us speed and cost. The repair flywheel gives us **resilience at scale**. When a selector ruptures — and selectors always rupture, because every portal redesigns its UI every 6–18 months — the repair is stored in a shared, cross-client knowledge base. The next time anyone hits the same portal + widget pattern, the fix is already there.
+Discovery gives us speed and cost. The repair flywheel gives us **resilience at scale**. When a selector ruptures — and selectors always rupture, because every portal redesigns its UI every 6–18 months — the repair is stored in a shared, cross-client KB. Next time anyone hits the same portal + widget pattern, the fix is already there.
 
 ### The cross-client loop
 
@@ -291,46 +269,36 @@ CLIENT A breaks on acme.com:
   Selector "button[data-invoice-download]" → not found
   → KB query: no match (first time)
   → LLM proposes: "a[aria-label='Download PDF']" (confidence 0.85)
-  → Human approves
-  → Repair stored in KB:
-      patternKey: "acme.com:button:download:button[data-invoice-download]"
-      repairedSelector: "a[aria-label='Download PDF']"
-      successCount: 0
+  → Human approves → Repair stored in KB (successCount: 0)
 
 CLIENT B breaks on the same acme.com portal:
   Same selector fails
   → KB query: MATCH FOUND (confidence 0.92, successCount ≥ 2)
   → Instant repair applied — NO LLM call, NO human review
-  → successCount incremented
   → MTTR: 0 ms (vs 6 s for LLM + 5 min for human)
 
-The flywheel accelerates:
-  More clients → more ruptures → more KB entries → faster repairs → happier clients → more clients
+Flywheel: more clients → more ruptures → more KB entries → faster repairs → happier clients → more clients
 ```
 
 ### The three-tier repair ladder
 
-The repair proposer consults three sources in order, and stops at the first hit:
+The repair proposer consults three sources in order, stopping at the first hit:
 
-1. **KB tier** — query `RepairKnowledge` by `patternKey`. If a match has `confidence ≥ 0.85` AND `successCount ≥ 2`, apply instantly (no LLM, no human). This is the fast path.
-2. **LLM tier** — if no KB match (or KB entry is below threshold), call the LLM repair proposer. It returns 1–3 candidate selectors with confidence scores. The candidate is applied if `confidence ≥ 0.90` (auto-apply), otherwise queued for human review.
-3. **Fallback tier** — if the LLM is unavailable or returns nothing, a deterministic fallback produces a candidate from a small library of common patterns (`a:has-text("Download")`, `button[role="button"]:has-text("...")`). Low confidence, always queued for human review.
+1. **KB tier** — query `RepairKnowledge` by `patternKey`. If match has `confidence ≥ 0.85` AND `successCount ≥ 2`, apply instantly (no LLM, no human). Fast path.
+2. **LLM tier** — if no KB match, call the LLM repair proposer. Returns 1–3 candidate selectors with confidence. Applied if `confidence ≥ 0.90` (auto-apply); otherwise queued for human review.
+3. **Fallback tier** — if LLM unavailable, deterministic fallback from a small pattern library (`a:has-text("Download")`, etc.). Low confidence, always queued for human review.
 
-Every approved repair — whether from LLM or fallback — is written back to the KB. This is the loop that compounds.
+Every approved repair — LLM or fallback — is written back to the KB. This is the loop that compounds.
 
 ### Combined-score ranking
 
-When multiple KB entries match a pattern, they are ranked by:
+When multiple KB entries match a pattern, they are ranked by `score = confidence × (1 + log(1 + successCount)) × (1 / (1 + failureCount))`:
 
-```
-score = confidence × (1 + log(1 + successCount)) × (1 / (1 + failureCount))
-```
+- `confidence` — LLM's original score, decayed over time (entries untouched for 90 days lose 5% per month).
+- `(1 + log(1 + successCount))` — rewards production-validated entries (~2.1× after 2 successes; ~3.4× after 10).
+- `1 / (1 + failureCount)` — punishes failing entries (0.25× after 3 failures; 0.17× after 5; auto-deprecated at 5+).
 
-- `confidence` is the LLM's original score, decayed slightly over time (entries that haven't been touched in 90 days lose 5% per month).
-- `(1 + log(1 + successCount))` rewards entries that have been validated in production. After 2 successes the multiplier is ~2.1×; after 10 successes it is ~3.4×.
-- `1 / (1 + failureCount)` punishes entries that started failing — e.g. a portal redesign that broke the old repair. After 3 failures the multiplier is 0.25×; after 5 failures, 0.17×. An entry with 5+ failures is auto-deprecated.
-
-This ranking is recomputed on every KB query, so the system self-corrects as portals evolve.
+Ranking is recomputed on every KB query, so the system self-corrects as portals evolve.
 
 ### RepairKnowledge schema (Prisma)
 
@@ -359,13 +327,13 @@ model RepairKnowledge {
 
 ### Why this is the moat
 
-Browser Use's "self-healing" is **per-session LLM retries** — the same rupture costs the same LLM call every time, on every client, forever. Earendel's repair flywheel is **cross-client**: every rupture repaired at Client A makes the next rupture at Client B instant. This is the kind of network effect that VCs call **data network effects**, and it is the reason the project is more defensible than a pure browser-automation play. The KB gets better with every customer, and the cost of switching away from Earendel grows with the KB's depth.
+Browser Use's "self-healing" is **per-session LLM retries** — the same rupture costs the same LLM call every time, on every client, forever. Earendel's repair flywheel is **cross-client**: every rupture repaired at Client A makes the next rupture at Client B instant. This is a classic **data network effect** — more clients → more ruptures → more KB entries → faster repairs → happier clients → more clients. The cost of switching away from Earendel grows with the KB's depth.
 
 ---
 
-## 6. Typed Action Contracts
+## 7. Typed Action Contracts
 
-Every action has a typed contract. The contract is the single source of truth that the orchestrator, the MCP server, the SDK generator, and the canary runner all read from.
+Every action has a typed contract — the single source of truth that the orchestrator, MCP server, SDK generator, and canary runner all read from.
 
 ### Contract structure
 
@@ -415,120 +383,89 @@ risk: low
 
 ### Postconditions are the gate
 
-Postconditions are validated **after every adapter**. If an adapter returns data that doesn't satisfy them, Earendel falls back to the next adapter — silently, automatically. The agent never sees the rupture; it just sees the final result. This is what makes the fallback chain trustworthy: every adapter is judged by the same contract, and the orchestrator never returns a result that violates the contract unless a human has explicitly signed off.
+Postconditions are validated **after every adapter**. If an adapter returns data that doesn't satisfy them, Earendel falls back silently and automatically. The agent never sees the rupture — it just sees the final result. The orchestrator never returns a contract-violating result unless a human has explicitly signed off.
 
 ### The `_humanReview` short-circuit
 
-If an adapter returns `{ _humanReview: true }`, postconditions are **skipped**. The human takes responsibility for the result. This is used in two cases:
-
-1. The `human` adapter returns its result (the human has manually completed the workflow and confirms the outputs are correct).
-2. The `vision` adapter, when it cannot fully parse a screenshot, returns `_humanReview: true` along with its best-effort parse, and queues the execution for human confirmation.
-
-This means the contract is the gate **for automated adapters only**. Humans are trusted by default; machines must prove themselves.
+If an adapter returns `{ _humanReview: true }`, postconditions are **skipped** — the human takes responsibility. Two cases: (1) the `human` adapter returns its result (human completed the workflow and confirms outputs); (2) the `vision` adapter returns `_humanReview: true` with a best-effort parse, queuing for human confirmation. The contract is the gate **for automated adapters only**. Humans are trusted by default; machines must prove themselves.
 
 ---
 
-## 7. Versioning & Canary Monitoring
+## 8. Versioning & Canary Monitoring
 
 ### Semver
 
-Every action is semver-versioned. The version manager bumps versions according to the change type:
+Every action is semver-versioned:
 
-- **Patch** (`1.2.3 → 1.2.4`) — selector fix, stealth update, anything that doesn't change the contract.
-- **Minor** (`1.2.3 → 1.3.0`) — new optional output field added, new precondition added, contract is backward-compatible.
+- **Patch** (`1.2.3 → 1.2.4`) — selector fix, stealth update, no contract change.
+- **Minor** (`1.2.3 → 1.3.0`) — new optional output field or precondition; backward-compatible.
 - **Major** (`1.2.3 → 2.0.0`) — breaking contract change (removed field, changed type, removed output).
 
-Each version has a **contract snapshot** — a frozen copy of the contract at publish time. Diffing two snapshots shows added/removed/changed fields, which makes the blast radius of a major bump visible at a glance.
+Each version has a **contract snapshot** — a frozen copy of the contract at publish time. Diffing two snapshots shows added/removed/changed fields, making the blast radius of a major bump visible at a glance.
 
 ### Rollback
 
-Rolling back to any previous version is one click (or one `POST /api/v1/actions/:id/rollback`). The action's `stable` pointer moves to the previous version, `latest` stays where it is, and the rollback is recorded in the action's history. Canary tests immediately re-run against the rolled-back version to confirm it still works.
+Rolling back is one click (or `POST /api/v1/actions/:id/rollback`). The action's `stable` pointer moves to the previous version, `latest` stays where it is, and the rollback is recorded in history. Canary tests immediately re-run against the rolled-back version.
 
 ### Canary monitoring
 
-Each published action has a canary test that runs every **15 minutes** against the live portal (using a fixture input — e.g. a known `invoiceId`). The canary exercises the full chain: it tries the adapters in order, validates postconditions, and records the outcome.
+Each published action has a canary test running every **15 minutes** against the live portal (using a fixture input — e.g. a known `invoiceId`). The canary exercises the full chain and records the outcome:
 
-- **Pass** — the action stays `healthy`.
-- **Soft fail** (preferred adapter fails, fallback succeeds) — the action is marked `degraded`. A repair proposal is auto-generated.
-- **Hard fail** (all adapters fail or postconditions fail) — the action is marked `broken`. The action is hidden from `tools/list` on the MCP server, so agents stop calling it until it's repaired.
+- **Pass** — action stays `healthy`.
+- **Soft fail** (preferred adapter fails, fallback succeeds) — action marked `degraded`; repair proposal auto-generated.
+- **Hard fail** (all adapters fail or postconditions fail) — action marked `broken`; hidden from `tools/list` so agents stop calling it until repaired.
 
-This is the early-warning system. You find out a portal changed before your agents do.
+This is the early-warning system — you find out a portal changed before your agents do.
 
 ---
 
-## 8. MCP Integration
+## 9. MCP Integration
 
-The MCP server (port 3004) implements JSON-RPC 2.0 over HTTP+SSE. It is the bridge that lets any MCP-compatible agent — Claude Desktop, Cursor, Cline, Continue — call Earendel actions as native tools.
+The MCP server (port 3004) implements JSON-RPC 2.0 over HTTP+SSE, bridging any MCP-compatible agent (Claude Desktop, Cursor, Cline, Continue) to Earendel actions as native tools.
 
 ### How it works
 
-- **`tools/list`** — returns all published actions as MCP tools. Each tool's `inputSchema` and `outputSchema` are derived directly from the action's contract. The tool name is the action's `mcpToolName` (e.g. `earendel_downloadInvoice`).
-- **`tools/call`** — forwards the call to the orchestrator's `POST /api/v1/executions` endpoint, runs the action through the 6-adapter chain, and returns the result as MCP content (a JSON object wrapped in the standard MCP content array).
+- **`tools/list`** — returns all published actions as MCP tools. `inputSchema`/`outputSchema` derived directly from the action's contract. Tool name = action's `mcpToolName` (e.g. `earendel_downloadInvoice`).
+- **`tools/call`** — forwards to `POST /api/v1/executions`, runs through the 6-adapter chain, returns the result as MCP content.
 
-This means any MCP-compatible agent can call `earendel_downloadInvoice({invoiceId: "INV-1001"})` and get back `{invoiceNumber, pdfUrl, amount, status}` — **no browser, no natural language, just a typed function call**. The agent doesn't know or care which adapter actually served the request. It just sees a reliable, typed function.
+Any MCP-compatible agent can call `earendel_downloadInvoice({invoiceId: "INV-1001"})` and get back `{invoiceNumber, pdfUrl, amount, status}` — **no browser, no natural language, just a typed function call**.
 
-### Claude Desktop config
+### Agent configs
 
-Add Earendel to your `claude_desktop_config.json`:
+**Claude Desktop** (`claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
-    "earendel": {
-      "url": "http://localhost:81/mcp?XTransformPort=3004",
-      "transport": "sse"
-    }
+    "earendel": { "url": "http://localhost:81/mcp?XTransformPort=3004", "transport": "sse" }
   }
 }
 ```
 
-### Cursor config
-
-In Cursor's MCP settings (Settings → MCP → Add Server):
+**Cursor** (Settings → MCP → Add Server):
 
 ```json
-{
-  "mcpServers": {
-    "earendel": {
-      "url": "http://localhost:81/mcp?XTransformPort=3004"
-    }
-  }
-}
+{ "mcpServers": { "earendel": { "url": "http://localhost:81/mcp?XTransformPort=3004" } } }
 ```
 
 ### What the agent sees
 
-Once connected, the agent's tool list includes every published Earendel action. The tool's `inputSchema` is a strict JSON Schema derived from the contract's `inputs`, so the agent is constrained to valid inputs. The `outputSchema` is included in the tool definition (per the MCP spec's 2025-03-26 schema-output extension), so the agent knows exactly what shape the response will take.
-
-Example tool definition (abbreviated):
+The tool's `inputSchema` is a strict JSON Schema derived from the contract's `inputs` (constrains the agent to valid inputs). The `outputSchema` is included per the MCP spec's 2025-03-26 schema-output extension, so the agent knows the response shape ahead of time. Example tool definition (abbreviated):
 
 ```json
 {
   "name": "earendel_downloadInvoice",
-  "description": "Download an invoice from Acme Finance. Returns the invoice number, PDF URL, amount, and status.",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "invoiceId": { "type": "string", "description": "The portal's invoice identifier (e.g. INV-1001)" }
-    },
-    "required": ["invoiceId"]
-  },
-  "outputSchema": {
-    "type": "object",
-    "properties": {
-      "invoiceNumber": { "type": "string" },
-      "pdfUrl": { "type": "string", "format": "uri" },
-      "amount": { "type": "number" },
-      "status": { "type": "string", "enum": ["paid", "open", "overdue"] }
-    },
-    "required": ["invoiceNumber", "pdfUrl", "amount", "status"]
-  }
+  "description": "Download an invoice from Acme Finance. Returns invoice number, PDF URL, amount, status.",
+  "inputSchema":  { "type": "object", "properties": { "invoiceId": { "type": "string" } }, "required": ["invoiceId"] },
+  "outputSchema": { "type": "object",
+    "properties": { "invoiceNumber": {"type":"string"}, "pdfUrl": {"type":"string","format":"uri"}, "amount": {"type":"number"}, "status": {"type":"string","enum":["paid","open","overdue"]} },
+    "required": ["invoiceNumber", "pdfUrl", "amount", "status"] }
 }
 ```
 
 ---
 
-## 9. Comparison with Browser Use / Browserbase / Skyvern
+## 10. Comparison with Browser Use / Browserbase / Skyvern
 
 | Feature | Earendel | Browser Use | Browserbase | Skyvern |
 |---------|----------|-------------|-------------|---------|
@@ -546,127 +483,100 @@ Example tool definition (abbreviated):
 | Determinism | ✅ (same input → same output) | ❌ (LLM non-determinism) | ❌ | ❌ |
 | Open source | ✅ (this repo) | ✅ (60k stars) | ❌ | ✅ |
 
-### What each competitor is actually good at
+### When to use which
 
-- **Browser Use** is the best-in-class open-source agent that *drives* a browser. Its stealth evasions, CAPTCHA handling, and 195-country proxy network are genuinely excellent — which is why we made them available as adapter #4 (BU Cloud) rather than reinventing them. If you need to interact with a hostile portal that requires CAPTCHA solving, BU is the right tool for that specific job.
-- **Browserbase** is a managed browser cloud. Same LLM-every-step model, but with infrastructure you don't have to run. The right choice if your team has decided browser-everywhere is the strategy and you want to outsource the browser fleet.
-- **Skyvern** wraps the browser with computer-vision heuristics for slightly better robustness. Still LLM-every-step; still $0.10–0.50 per run.
-
-### Where Earendel wins
-
-Earendel wins on **repeated authorized workflows** — the 80% of business automation that is "do this thing the same way every Tuesday." For those, the LLM-at-every-step tax is pure waste: you're paying $0.50 to do what could be a 120 ms HTTP call. Earendel compiles the workflow once, then runs it deterministically, falling back to LLM only when something breaks.
-
-For **one-off exploratory browsing** — "go find me the cheapest flight to Tokyo next month" — Browser Use and Skyvern are still the right tools. Earendel doesn't try to compete there. The pitch is narrower and sharper: **repeated, authorized, typed.**
+- **Browser Use / Browserbase / Skyvern** — best for **one-off exploratory browsing** ("find me the cheapest flight to Tokyo"). LLM-every-step is the right model when the workflow is novel each time.
+- **Earendel** — best for **repeated authorized workflows** (the 80% of business automation that is "do this thing the same way every Tuesday"). Compiles once, runs deterministically, falls back to LLM only when something breaks. The pitch: **repeated, authorized, typed.**
 
 ---
 
-## 10. The "Knowns" Analysis (Rumsfeld Matrix)
+## 11. The "Knowns" Analysis (Rumsfeld Matrix)
 
-An honest competitive analysis, in the Donald Rumsfeld frame:
+An honest competitive analysis, in the Donald Rumsfeld frame.
 
 ### Known Knowns (BU does better than us today)
 
-- **Stealth browsers.** BU has invested heavily in anti-bot evasions; we wrap their work as adapter #4.
-- **195-country proxy network.** This is a capex advantage; we don't try to replicate it.
-- **Custom LLMs for browser automation.** BU has fine-tuned models for the "look at page → decide action" loop. We don't need this — we don't do that loop at runtime — but if we ever extended into exploratory browsing, BU would have a head start.
-- **Scale infrastructure.** BU runs thousands of parallel sessions in production. Earendel is currently a single-tenant deployment.
+- **Stealth browsers** — BU has invested heavily in anti-bot evasions; we wrap their work as adapter #4.
+- **195-country proxy network** — capex advantage; we don't replicate it.
+- **Custom LLMs for browser automation** — BU has fine-tuned models for the look-decide-act loop. We don't need this at runtime, but BU has a head start if we extend into exploratory browsing.
+- **Scale infrastructure** — BU runs thousands of parallel sessions; Earendel is currently single-tenant.
 
 ### Known Unknowns (we know we don't know)
 
-- **BU's exact pricing.** Public pricing pages lag actual enterprise deals.
-- **BU's real reliability metrics.** Their marketing claims are unverified at scale.
-- **BU's multi-tenant isolation model.** Unclear how they separate customer sessions, cookies, and credentials.
+- **BU's exact pricing** — public pages lag enterprise deals.
+- **BU's real reliability metrics** — marketing claims unverified at scale.
+- **BU's multi-tenant isolation** — unclear how they separate customer sessions, cookies, credentials.
 
 ### Unknown Knowns (we do, but don't valorize)
 
-- **Typed action contracts.** We have them; competitors don't, and we under-sell the advantage.
-- **Multi-adapter fallback.** Our 6-adapter chain is unique; we treat it as a feature, not the moat it actually is.
-- **Repair flywheel potential.** The cross-client KB is a network effect that compounds with scale; we should foreground it more.
+- **Typed action contracts** — we have them; competitors don't, and we under-sell the advantage.
+- **Multi-adapter fallback** — our 6-adapter chain is unique; we treat it as a feature, not the moat it is.
+- **Repair flywheel potential** — the cross-client KB is a network effect that compounds with scale.
 
 ### Unknown Unknowns (neither side knows yet)
 
-- **The reliability ceiling of LLM agents.** WebArena scores are around 60%. Whether that's a 2-year plateau or a 6-month problem is unknown. If LLMs get dramatically better at browser driving, the BU-style approach becomes more attractive; if they plateau, the compiled approach wins harder.
-- **MCP as universal standard.** MCP is rapidly becoming the lingua franca for agent ↔ tool communication. If it wins, Earendel's MCP-native publishing is a significant moat; if something else wins, we re-target.
-- **Cost inversion as LLMs get cheaper.** If LLM token costs drop 100×, the BU-style "LLM every step" model becomes cheap enough that the speed/reliability gap matters less. Earendel still wins on determinism and postcondition guarantees, but the cost advantage shrinks.
+- **The reliability ceiling of LLM agents** — WebArena ~60%. If LLMs improve dramatically, BU-style becomes more attractive; if they plateau, the compiled approach wins harder.
+- **MCP as universal standard** — if MCP wins, Earendel's MCP-native publishing is a moat; if something else wins, we re-target.
+- **Cost inversion as LLMs get cheaper** — if token costs drop 100×, the BU-style model becomes cheaper, but Earendel still wins on determinism and postconditions.
 
-The strategic implication: **Earendel should win the workflows that are repeated and authorized** (where determinism and cost matter), and **partner with / wrap BU for the long tail** of one-off browser interactions. The 6-adapter chain is precisely this strategy made operational.
+**Strategic implication:** Earendel should win the workflows that are **repeated and authorized**, and **partner with / wrap BU for the long tail** of one-off browser interactions. The 6-adapter chain is precisely this strategy made operational.
 
 ---
 
-## 11. Production Deployment
+## 12. Production Deployment
 
 ### Prerequisites
 
-- **Node.js 20+** and **Bun** (frontend + mini-services)
-- **Python 3.12+** (backend)
-- **SQLite** for development, **PostgreSQL** for production
-- **Caddy 2** (gateway) — or any reverse proxy that supports query-parameter-based routing
-- **Playwright** with Chromium binaries (for the local `browser` adapter)
-- **Chrome** with the Earendel recorder extension (for capturing HAR + DOM events)
+- **Node.js 20+** + **Bun** (frontend + mini-services) · **Python 3.12+** (backend)
+- **SQLite** (dev) / **PostgreSQL** (prod) · **Caddy 2** gateway
+- **Playwright** with Chromium binaries (local `browser` adapter)
+- **Chrome** with the Earendel recorder extension (captures HAR + DOM events)
 
 ### Environment variables
 
 Copy `.env.example` to `.env` and fill in:
 
 ```bash
-# Database
-DATABASE_URL="file:./dev.db"          # production: postgresql://user:pass@host:5432/earendel
-
-# NextAuth
+DATABASE_URL="file:./dev.db"                  # production: postgresql://user:pass@host:5432/earendel
 NEXTAUTH_URL="http://localhost:3000"
-NEXTAUTH_SECRET="generate-with: openssl rand -base64 32"
-
-# Backend
-BACKEND_SECRET="generate-with: openssl rand -base64 32"
-
-# Demo mode (true = simulation, false = real API/browser calls)
-EARENDEL_DEMO_MODE=true               # set to false for production
-
-# Optional — adapter enablement
-EARENDEL_BROWSER_PROXY=""             # SOCKS5/HTTP proxy for the local browser adapter
-BROWSER_USE_API_KEY=""                # auto-provisioned on first BU adapter use if empty
+NEXTAUTH_SECRET="..."   BACKEND_SECRET="..."    # generate with: openssl rand -base64 32
+EARENDEL_DEMO_MODE=true                       # true = simulation; false = real API/browser calls
+EARENDEL_BROWSER_PROXY=""                     # optional: SOCKS5/HTTP proxy for local browser adapter
+BROWSER_USE_API_KEY=""                        # optional: auto-provisioned on first BU adapter use if empty
 ```
 
 ### Quick start
 
 ```bash
-# 1. Install frontend dependencies
-bun install
-
-# 2. Create the SQLite schema (idempotent — safe to re-run)
-bun run db:push
-
-# 3. Install backend dependencies
+bun install                    # frontend deps
+bun run db:push                # SQLite schema (idempotent)
 pip3 install -r backend/requirements.txt
+python3 start_services.py      # starts Next.js :3000, FastAPI :8001, MCP :3004, Stream :3003
 
-# 4. Start all four services (Next.js :3000, FastAPI :8001, MCP :3004, Stream :3003)
-python3 start_services.py
-
-# 5. Verify
-curl http://localhost:8001/health          # → {"status": "ok"}
-curl http://localhost:3000/                # → HTML
-curl http://localhost:81/api/v1/actions?XTransformPort=8001  # → list of actions
+# Verify
+curl http://localhost:8001/health         # → {"status":"ok"}
+curl http://localhost:81/api/v1/actions?XTransformPort=8001
 ```
 
-The Studio is now reachable at `http://localhost:81/` (Caddy gateway) or `http://localhost:3000/` (direct). The MCP server is at `http://localhost:81/mcp?XTransformPort=3004`.
+Studio: `http://localhost:81/` (Caddy) or `http://localhost:3000/` (direct). MCP: `http://localhost:81/mcp?XTransformPort=3004`.
 
 ### Architecture in production
 
 The same four services, scaled horizontally:
 
-- **Studio** — stateless, run 2+ instances behind a load balancer.
-- **Orchestrator** — stateless, run 2+ instances. The action registry is in-memory but reloaded from the DB on startup; the adapter chain is per-request.
-- **MCP server** — stateless, run 2+ instances. Each request mints a fresh JWT for the backend.
-- **Execution stream** — sticky-session Socket.io, run 2+ instances with Redis adapter for cross-instance fan-out.
-- **Database** — PostgreSQL with read replicas. The heaviest tables are `Execution` (write-heavy, time-series-ish) and `RepairKnowledge` (read-heavy, low write).
+- **Studio** — stateless, 2+ instances behind a load balancer.
+- **Orchestrator** — stateless, 2+ instances. Action registry in-memory, reloaded from DB on startup; adapter chain per-request.
+- **MCP server** — stateless, 2+ instances. Each request mints a fresh backend JWT.
+- **Execution stream** — sticky-session Socket.io, 2+ instances with Redis adapter for cross-instance fan-out.
+- **Database** — PostgreSQL with read replicas. Heaviest tables: `Execution` (write-heavy) and `RepairKnowledge` (read-heavy).
 
-The `?XTransformPort=` gateway pattern works identically in production — Caddy just needs to know the upstream service map.
+The `?XTransformPort=` gateway pattern works identically in production.
 
 ---
 
-## 12. API Reference
+## 13. API Reference
 
-All endpoints are under `/api/v1/` and go through Caddy on port 81 with `?XTransformPort=8001` (backend) or `?XTransformPort=3004` (MCP). Authentication is a JWT in the `Authorization: Bearer ...` header, minted by the Studio or the MCP server.
+All endpoints are under `/api/v1/` through Caddy on port 81 with `?XTransformPort=8001` (backend) or `=3004` (MCP). Auth is a JWT in the `Authorization: Bearer ...` header, minted by the Studio or MCP server.
 
 ### Primary endpoints
 
@@ -709,143 +619,83 @@ All endpoints are under `/api/v1/` and go through Caddy on port 81 with `?XTrans
 
 ```bash
 curl -X POST http://localhost:81/api/v1/executions?XTransformPort=8001 \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "actionId": "action_downloadInvoice_acme",
-    "inputs": { "invoiceId": "INV-1001" }
-  }'
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"actionId":"action_downloadInvoice_acme","inputs":{"invoiceId":"INV-1001"}}'
 ```
-
-Response (abbreviated):
-
-```json
-{
-  "id": "exec_8f3a...",
-  "actionId": "action_downloadInvoice_acme",
-  "status": "success",
-  "adapterUsed": "internal_route",
-  "outputs": {
-    "invoiceNumber": "INV-1001",
-    "pdfUrl": "https://acme.com/invoices/INV-1001.pdf",
-    "amount": 4250.00,
-    "status": "paid"
-  },
-  "traces": [
-    { "adapter": "api", "status": "skipped", "latencyMs": 0, "reason": "no official API configured" },
-    { "adapter": "internal_route", "status": "success", "latencyMs": 138, "endpointId": "dep_..." }
-  ],
-  "postconditions": { "pdf downloaded": "pass", "amount positive": "pass", "status present": "pass" },
-  "startedAt": "2025-01-15T10:23:11.000Z",
-  "completedAt": "2025-01-15T10:23:11.142Z"
-}
-```
+Returns the full Execution (`status`, `adapterUsed`, `outputs`, per-adapter `traces`, `postconditions`).
 
 ---
 
-## 13. Technology Stack
+## 14. Technology Stack
 
-### Frontend (Studio)
+**Frontend (Studio) — Next.js 16 / React 19 / TypeScript 5**
 
-- **Next.js 16** with App Router, React 19, React Server Components
-- **TypeScript 5** with strict mode
-- **Tailwind CSS 4** with custom design tokens (dark warm palette: `#1F1A17` / `#E8E0D4` / `#6B5876` / `#7A8548` / `#42403D`)
-- **shadcn/ui** components (Card, Dialog, Table, AlertDialog, Tooltip, Select, Collapsible, Progress, ...)
-- **Zustand** for view routing (single `/` route, in-memory view switching)
-- **TanStack Query** + a small `useApi` hook (AbortController + refetch interval)
-- **Recharts** for canary / MTTR / reliability visualizations
-- **Framer Motion** for view transitions
-- **Octicons** (via `@primer/octicons-react`) — no lucide
-- **Cormorant Garamond** (headings) + **Hanken Grotesk** (body)
+- Next.js 16 (App Router, RSC) · TypeScript 5 strict · Tailwind CSS 4 (dark warm palette `#1F1A17` / `#E8E0D4` / `#6B5876` / `#7A8548` / `#42403D`)
+- shadcn/ui components · Zustand view routing · TanStack Query + `useApi` hook · Recharts · Framer Motion · Octicons · Cormorant Garamond + Hanken Grotesk
 
-### Backend (Orchestrator)
+**Backend (Orchestrator) — FastAPI / Python 3.12**
 
-- **FastAPI** 0.128
-- **Pydantic 2** for domain models and contracts
-- **SQLAlchemy 2** (async) for ORM
-- **httpx** for adapter HTTP calls
-- **PyJWT** for auth tokens
-- **Playwright** + custom stealth evasions (`adapters/stealth.py`) for the local `browser` adapter
+- FastAPI 0.128 · Pydantic 2 · SQLAlchemy 2 async · httpx · PyJWT · Playwright + custom stealth evasions (`adapters/stealth.py`)
 
-### Database
+**Database — Prisma + SQLite (dev) / PostgreSQL (prod)**
 
-- **Prisma ORM** 6.x for schema management and the frontend's typed client
-- **SQLite** for development (zero-config, file-based)
-- **PostgreSQL-ready** — change one line in `prisma/schema.prisma` (`provider = "postgresql"`) and update `DATABASE_URL`
+- Prisma ORM 6.x for schema management and the frontend's typed client. SQLite for dev (zero-config); PostgreSQL-ready — change `provider = "postgresql"` in `prisma/schema.prisma` and update `DATABASE_URL`.
 
-### Real-time
+**Real-time — Socket.io mini-service on port 3003**
 
-- **Socket.io** mini-service on port 3003 for per-execution live trace streaming
-- Studio subscribes via `io('/?XTransformPort=3003')`, joins a room per execution ID, receives trace events as they happen
+- Per-execution live trace streaming. Studio subscribes via `io('/?XTransformPort=3003')`, joins a room per execution ID, receives trace events as they happen.
 
-### MCP
+**MCP — @modelcontextprotocol/sdk 1.29** — JSON-RPC 2.0 over HTTP + SSE (works through Caddy). Tool schemas derived directly from action contracts.
 
-- **@modelcontextprotocol/sdk** 1.29
-- JSON-RPC 2.0 over HTTP + SSE (works through the Caddy gateway)
-- Tool schemas derived directly from action contracts
+**LLM — z-ai-web-dev-sdk** — used at **compile time** (recording → contract) and **repair time** (rupture → candidate selector). Never at runtime in the happy path.
 
-### LLM
+**Browser**
 
-- **z-ai-web-dev-sdk** for the repair proposer, schema compiler, and vision adapter
-- Used at **compile time** (recording → contract) and **repair time** (rupture → candidate selector)
-- Never used at runtime in the happy path
-
-### Browser
-
-- **Playwright** with custom stealth evasions for the local `browser` adapter (no `playwright-stealth` dependency — the evasions are in-tree and dependency-free)
-- **Browser Use Cloud** as the optional `bu_browser` adapter (self-provisioning via challenge-response signup, only activated when the action opts in)
-- **Chrome extension** for recording (manifest v3, captures DOM events + HAR + screenshots)
+- **Playwright** with in-tree, dependency-free stealth evasions for the local `browser` adapter.
+- **Browser Use Cloud** as the optional `bu_browser` adapter (self-provisioning via challenge-response signup, only activated when the action opts in).
+- **Chrome extension** (manifest v3) for recording — captures DOM events + HAR + screenshots.
 
 ---
 
-## 14. What's Real vs Simulated (Honesty Section)
+## 15. What's Real vs Simulated
 
-Earendel is a working research-grade system, not a polished commercial product. Some components are production-ready; others are simulations designed to demonstrate the architecture. We believe transparency here is more valuable than the appearance of completeness.
+Earendel is a working research-grade system, not a polished commercial product. Some components are production-ready; others are simulations designed to demonstrate the architecture.
 
 ### Real (production-grade)
 
 - **6-adapter fallback chain** — fully implemented, traces propagated end-to-end, postcondition validation between adapters.
-- **Network Discovery (Option B)** — real HAR analyzer (`core/discovery/har_analyzer.py`, ~580 lines), real clustering + scoring + field-mapping inference, real `internal_route` adapter that queries the DB and replays endpoints.
-- **Repair Flywheel (Option A)** — real KB storage, real three-tier (KB → LLM → fallback) repair ladder, real combined-score ranking, real cross-client `patternKey` matching.
-- **Typed action contracts** — Pydantic models, postcondition runner, schema validator. All production-grade.
+- **Network Discovery (Option B)** — real HAR analyzer (`core/discovery/har_analyzer.py`, ~580 lines), real clustering + scoring + field-mapping inference, real `internal_route` adapter.
+- **Repair Flywheel (Option A)** — real KB storage, three-tier (KB → LLM → fallback) repair ladder, combined-score ranking, cross-client `patternKey` matching.
+- **Typed action contracts** — Pydantic models, postcondition runner, schema validator.
 - **Versioning** — semver bumping, contract snapshots, rollback.
 - **Canary monitoring** — runs every 15 min, marks actions `degraded` / `broken`, auto-generates repair proposals.
-- **MCP server** — real JSON-RPC 2.0, real `tools/list` + `tools/call`, real schema derivation.
-- **Studio UI** — all 13 views (Dashboard, Connectors, Recorder, Actions, Action Detail, Executions, Monitoring, Discovery, Repair KB, Publishing, Playground, plus connector/recording detail) are functional and wired to live endpoints.
+- **MCP server** — real JSON-RPC 2.0, `tools/list` + `tools/call`, real schema derivation.
+- **Studio UI** — all 13 views (Dashboard, Connectors, Recorder, Actions, Action Detail, Executions, Monitoring, Discovery, Repair KB, Publishing, Playground + connector/recording detail) functional and wired to live endpoints.
 - **Risk gating** — real `RISK_POLICY` enforcement, real human-escalation on critical actions.
-- **BU adapter** — real self-provisioning (challenge-response signup with a safe recursive-descent math parser, no `eval()`), real session creation + task execution against the BU Cloud API. Falls back gracefully if the API is unreachable.
+- **BU adapter** — real self-provisioning (challenge-response signup with safe recursive-descent math parser, no `eval()`), real session creation + task execution. Falls back gracefully if API unreachable.
 
 ### Simulated (demo mode, swappable for real)
 
-- **`api` adapter** — currently returns deterministic simulated outputs. The adapter is structured so swapping in a real Stripe / SAP / etc. SDK is a one-file change.
-- **`browser` adapter (in demo mode)** — when `EARENDEL_DEMO_MODE=true` (the default for tests + dev), the adapter uses a deterministic simulation with a 15% failure rate to exercise the repair loop. When `EARENDEL_DEMO_MODE=false`, it tries real Playwright first, falling back to simulation only on Playwright failure.
-- **`vision` adapter** — currently uses deterministic parsing of a fixture. The real VLM call (z-ai-web-dev-sdk) is wired but only invoked when the fixture is missing.
-- **`human` adapter** — currently returns a queued-for-review stub. The human review queue UI is functional; the human-in-the-loop completion is manual (operator clicks "Approve" or "Reject" in the Studio).
-- **LLM client** — `infrastructure/llm_client.py` is a deterministic stub that routes by keyword (compile / repair / classify) and returns plausible responses. The real z-ai-web-dev-sdk integration is a drop-in replacement; the stub exists so tests are fast and offline.
-- **Seed data** — `backend/app/seed.py` populates 3 connectors (Acme Finance, Maersk Logistics, BlueCross Healthcare), 2 recordings, 3 published actions, 6 executions, 2 repair proposals, and a handful of KB entries. This is demo data, not real customer data.
+- **`api` adapter** — deterministic simulated outputs. Swapping in a real Stripe/SAP SDK is a one-file change.
+- **`browser` adapter (demo mode)** — when `EARENDEL_DEMO_MODE=true` (default), uses a deterministic simulation with 15% failure rate to exercise the repair loop. With `=false`, tries real Playwright first, falls back to simulation on failure.
+- **`vision` adapter** — deterministic parsing of a fixture. Real VLM call (z-ai-web-dev-sdk) is wired but only invoked when the fixture is missing.
+- **`human` adapter** — returns a queued-for-review stub. Review queue UI is functional; completion is manual (operator clicks Approve/Reject).
+- **LLM client** — `infrastructure/llm_client.py` is a deterministic stub that routes by keyword. Real z-ai-web-dev-sdk is a drop-in replacement; the stub keeps tests fast and offline.
+- **Seed data** — `backend/app/seed.py` populates 3 connectors (Acme, Maersk, BlueCross), 2 recordings, 3 published actions, 6 executions, 2 repair proposals. Demo data, not real customer data.
 
-### The honest takeaway
-
-The architecture is real. The data flow is real. The fallback chain, the discovery pipeline, the repair flywheel, the MCP integration — all of these are implemented and tested. The thing that is **simulated** is the *external world*: the real Stripe API, the real Acme portal, the real LLM responses. Those are gated behind environment variables and adapter implementations that are designed to be swapped in one PR at a time.
-
-If you want to run Earendel against a real portal today: set `EARENDEL_DEMO_MODE=false`, record a workflow in the Chrome extension, compile it, and the `internal_route` and `browser` adapters will exercise real HTTP and real Playwright respectively. The `api` adapter needs you to wire in the upstream SDK; the `vision` adapter needs a real VLM endpoint; the `human` adapter needs you to staff the review queue. None of these are architectural changes — they're integration work.
+The architecture is real; the data flow is real. What is **simulated** is the *external world* — real Stripe API, real Acme portal, real LLM responses. To run against a real portal: set `EARENDEL_DEMO_MODE=false`, record a workflow, compile it. The `internal_route` and `browser` adapters then exercise real HTTP and real Playwright. Wiring in the `api` SDK, a real VLM endpoint, or staffing the human review queue is integration work, not architectural change.
 
 ---
 
-## 15. Research Foundation — Papers by Problem / Sub-problem
+## 16. Research Foundation — Papers by Problem
 
-> This section maps every research paper that grounds Earendel's design to the specific sub-problem it addresses. ~136 papers across 4 problem domains, organized so you know exactly **what to read** to understand **why each component is built the way it is**.
->
-> Each paper has: title, authors, venue + year, URL, key contribution, and the specific Earendel sub-problem it grounds.
->
-> **Verification note:** Every paper below was found via web search and cross-checked against ≥2 sources. Papers that could not be verified are not listed. Where a claim (e.g., "95.92% precision") is cited, the source paper is named.
+> ~136 papers across 4 problem domains, each mapped to the specific Earendel sub-problem it addresses (title, authors, venue + year, URL, key contribution, Earendel component grounded). Every paper was web-searched and cross-checked against ≥2 sources; unverifiable papers are not listed. Where a claim (e.g., "95.92% precision") is cited, the source paper is named.
 
 ---
 
 ### Problem A — Network Discovery: "How do we discover a website's internal APIs from captured traffic?"
 
 **Earendel component:** `core/discovery/har_analyzer.py`, `internal_route_adapter.py`, `DiscoveredEndpoint` table
-**The sub-problems:**
 
 #### A.1 — API inference from network traffic (the APISENSOR paradigm)
 
@@ -895,14 +745,13 @@ If you want to run Earendel against a real portal today: set `EARENDEL_DEMO_MODE
 | A5.1 | **Differential Regression Testing for REST APIs** | Lehmann, Bürdek, Fiebig et al. | ISSTA 2020 | https://dlehmann.eu/publications/DifferentialRestAPIs-issta2020.pdf | Compares two API versions on same inputs to surface regressions. | **Direct template for Earendel's replay use case:** capture once, replay against multiple builds. |
 | A5.2 | **Metamorphic Testing of RESTful Web APIs** | Troya, Weyder, García-Domínguez et al. | IEEE TSE 2017 | https://javiertroyauma.github.io/publications/TSE2017_REST_prePrint.pdf | Six abstract metamorphic relations (idempotency, commutativity) for oracle-free fault detection. | **Provides the oracles Earendel needs** when replaying without a ground-truth spec. |
 | A5.3 | **ARMeta: Multi-Agent LLM-based Metamorphic Testing for REST APIs** | (Åbo Akademi) | arXiv:2605.28321, 2026 | https://arxiv.org/html/2605.28321v1 | LLM multi-agent derives metamorphic relations from OpenAPI specs. | Modern LLM-driven upgrade path on top of A5.2. |
-| A5.4 | **Carving UI Tests to Generate API Tests and API Specification** | Mesbah et al. (UBC) | ICSE 2023 | https://people.ece.ubc.ca/amesbah/resources/papers/apicarv-icse23.pdf | Navigates web app via UI tests, observes HTTP traffic, "carves" reusable API tests + OpenAPI spec. | **Almost identical pipeline to Earendel's** (UI → HAR → spec + tests). Direct template. |
+| A5.4 | **Carving UI Tests to Generate API Tests and API Specification** | Mesbah et al. (UBC) | ICSE 2023 | https://people.ece.ubc.ca/~amesbah/resources/papers/apicarv-icse23.pdf | Navigates web app via UI tests, observes HTTP traffic, "carves" reusable API tests + OpenAPI spec. | **Almost identical pipeline to Earendel's** (UI → HAR → spec + tests). Direct template. |
 
 ---
 
 ### Problem B — Self-Healing Web Automation: "How do we repair broken selectors and learn from ruptures across clients?"
 
 **Earendel component:** `core/repair/repair_proposer.py`, `core/repair/knowledge_base.py`, `RepairKnowledge` table
-**The sub-problems:**
 
 #### B.1 — Self-healing web/test automation (the WAREX line)
 
@@ -962,7 +811,6 @@ If you want to run Earendel against a real portal today: set `EARENDEL_DEMO_MODE
 ### Problem C — Web Agent Reliability + Typed Actions + Stealth + MCP: "How do we make agents reliable, typed, and MCP-native?"
 
 **Earendel component:** orchestrator (reliability), `TypedAction` contracts (typed actions), `browser_adapter` stealth, MCP server
-**The sub-problems:**
 
 #### C.1 — Web agent benchmarks + reliability ceiling (the ~60%/~38% numbers)
 
@@ -1023,7 +871,6 @@ If you want to run Earendel against a real portal today: set `EARENDEL_DEMO_MODE
 ### Problem D — Multi-Tenant Registry + Contract Testing + Browser-at-Scale + Versioning: "How do we build a shared, versioned, reliable registry of actions?"
 
 **Earendel component:** `TypedAction` versioning, postconditions, publishing (MCP/REST/SDK), browser pool, future multi-tenant registry
-**The sub-problems:**
 
 #### D.1 — Multi-tenant registry / API marketplace design
 
@@ -1093,7 +940,7 @@ If you want to run Earendel against a real portal today: set `EARENDEL_DEMO_MODE
 
 ---
 
-## 16. Research Foundation Summary
+## 17. Research Foundation Summary
 
 | Problem domain | Papers | Strongest single citation |
 |----------------|--------|---------------------------|
@@ -1103,7 +950,7 @@ If you want to run Earendel against a real portal today: set `EARENDEL_DEMO_MODE
 | D. Registry + contract testing + browser-at-scale + versioning | 41 | **API Evolution SLR** (ACM CSUR 2021) — the definitive versioning reference |
 | **Total verified papers** | **~136** | |
 
-### Top 10 must-cite papers for Earendel
+### Top 10 must-cite papers
 
 1. **APISENSOR** (arXiv:2603.23852, 2026) — the technical moat's academic foundation.
 2. **Web Verbs** (ICML 2026, arXiv:2602.17245) — the typed-actions thesis Earendel implements.
@@ -1118,15 +965,15 @@ If you want to run Earendel against a real portal today: set `EARENDEL_DEMO_MODE
 
 ### Honesty notes
 
-- The "~60% WebArena" and "~38% OSWorld" figures are **leaderboard SOTA summaries**, not single-paper numbers. Cite as leaderboard references.
-- **Web Verbs** is a **position paper** without large-scale experiments. Earendel can credibly claim to be the *empirical* instantiation, but should not cite Web Verbs as if it experimentally proved its thesis.
-- The **stealth/anti-detect** academic literature is thinner and older than the other domains; recent output is mostly industry threat-research blogs.
+- The "~60% WebArena" and "~38% OSWorld" figures are **leaderboard SOTA summaries**, not single-paper numbers.
+- **Web Verbs** is a **position paper** without large-scale experiments. Earendel is the *empirical* instantiation; do not cite Web Verbs as if it experimentally proved the thesis.
+- The **stealth/anti-detect** academic literature is thinner and older than the other domains.
 - **MCP has no foundational peer-reviewed paper** — only an Anthropic spec + academic surveys. Cite the spec URL as primary.
-- Papers that could not be verified as real academic publications (NoAPI, Cobra, APIZen, ApiOracle) are **not listed**. If you know of a real paper by these names, provide the author/venue and we'll re-verify.
+- Papers that could not be verified (NoAPI, Cobra, APIZen, ApiOracle) are **not listed**.
 
 ---
 
-## 17. License & Acknowledgments
+## 18. License & Acknowledgments
 
 ### License
 
@@ -1136,16 +983,13 @@ MIT. See `LICENSE` for the full text.
 
 This project stands on the shoulders of several research and open-source efforts:
 
-- **APISENSOR** (network discovery research) — the empirical basis for our HAR-based endpoint discovery. Their reported **95.92% precision** is the floor we design to.
-- **Web Verbs** (typed action contracts) — the inspiration for treating browser workflows as typed functions with preconditions and postconditions, rather than as natural-language scripts.
-- **MCP** (Model Context Protocol) — Anthropic's protocol for agent ↔ tool communication. Earendel is MCP-native from day one because we believe MCP is becoming the universal standard.
-- **Browser Use** — for the stealth browser infrastructure and CAPTCHA-solving capability we wrap as adapter #4. We don't compete with BU on what they're best at; we partner with them.
-- **Playwright** — for the browser automation foundation that powers our local `browser` adapter.
-- **OmniParser** — for the screenshot-grounded parsing research that informs our `vision` adapter design.
-- **AutoRPA** — for the broader research program of treating RPA maintenance as a first-class engineering problem rather than a manual chore.
-- **Internal APIs Are All You Need** (arXiv:2604.00694) — for independent academic validation of our core thesis.
-- **WAREX** (arXiv:2510.03285) — for formalizing "web agent reliability" and proving LLM self-healing doesn't hold under real instability.
-- **Beyond Browsing: API-Based Web Agents** (ACL Findings 2025) — for empirical proof that hybrid (API + browsing) > browsing-only.
+- **APISENSOR** (arXiv:2603.23852) — empirical basis for HAR-based endpoint discovery (95.92% precision floor).
+- **Web Verbs** (ICML 2026, arXiv:2602.17245) — inspiration for typed action contracts.
+- **MCP** (Anthropic) — the agent ↔ tool protocol; Earendel is MCP-native from day one.
+- **Browser Use** — stealth browser infrastructure + CAPTCHA-solving, wrapped as adapter #4.
+- **Playwright** — browser automation foundation for the local `browser` adapter.
+- **Internal APIs Are All You Need** (arXiv:2604.00694) — independent academic validation of our thesis.
+- **WAREX** (arXiv:2510.03285) — formalizes "web agent reliability"; proves LLM self-healing doesn't hold.
 
 ### The name
 
@@ -1153,4 +997,4 @@ Earendel is the Old English word for a shining light — the morning star, the h
 
 ---
 
-*Earendel is a research-grade system. The architecture is production-real; some external integrations are simulated for testability. See [What's Real vs Simulated](#14-whats-real-vs-simulated-honesty-section) for the full accounting. See [PRODUCTION_ROADMAP.md](./PRODUCTION_ROADMAP.md) for the path to honestly production-ready. See [COMPETITIVE_ANALYSIS_RINDLER.md](./COMPETITIVE_ANALYSIS_RINDLER.md) for the analysis of our closest direct competitor.*
+*Earendel is a research-grade system. The architecture is production-real; some external integrations are simulated for testability. See [What's Real vs Simulated](#15-whats-real-vs-simulated) for the full accounting. See `PRODUCTION_ROADMAP.md` for the path to honestly production-ready. See `COMPETITIVE_ANALYSIS_RINDLER.md` for the analysis of our closest direct competitor.*
