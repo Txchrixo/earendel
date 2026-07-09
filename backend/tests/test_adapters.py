@@ -438,24 +438,23 @@ async def test_bu_adapter_traces_use_bu_browser_type(adapter_ctx):
 
 
 def test_bu_math_challenge_solver_is_safe_and_correct():
-    """The math challenge parser must NOT use eval and must solve simple
-    arithmetic expressions correctly, formatting the answer as 2-decimal."""
+    """The fallback math solver handles simple arithmetic (Phase 4: LLM is primary).
+
+    The sync _solve_math_challenge is now a regex-based fallback. The primary
+    solver is _solve_challenge_via_llm (async, LLM-powered) which handles the
+    obfuscated multilingual word problems BU actually sends.
+    """
     from app.adapters.bu_browser_adapter import _solve_math_challenge
 
-    # Basic arithmetic — each returns a 2-decimal string.
+    # Basic arithmetic — the fallback handles simple A op B patterns.
     assert _solve_math_challenge("What is 12 * 12?") == "144.00"
     assert _solve_math_challenge("What is 7 + 8?") == "15.00"
     assert _solve_math_challenge("What is 100 - 42?") == "58.00"
     assert _solve_math_challenge("What is 84 / 4?") == "21.00"
-    # Parentheses, precedence, unary minus.
-    assert _solve_math_challenge("Compute: (2 + 3) * 4") == "20.00"
-    assert _solve_math_challenge("What is -5 + 10?") == "5.00"
-    # Floats.
-    assert _solve_math_challenge("What is 1.5 * 2?") == "3.00"
 
 
 def test_bu_math_challenge_solver_rejects_unsafe_input():
-    """The parser must reject expressions containing letters / forbidden chars."""
+    """The fallback solver must reject non-arithmetic input (no eval)."""
     from app.adapters.bu_browser_adapter import _solve_math_challenge
 
     with pytest.raises(ValueError):

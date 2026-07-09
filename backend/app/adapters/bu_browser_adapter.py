@@ -9,6 +9,11 @@ BU is NEVER the default path. It activates only when:
   (b) the local browser adapter has already failed (the orchestrator's
       fallback chain reaches this adapter in order).
 
+**Phase 4:** The signup challenge is an obfuscated word problem (e.g.,
+"A sToRe H\\aS f-If<T*eEn Pe^RcEn>T oF>f..."). The original arithmetic-only
+parser could not handle this. We now use the LLM (z-ai, already installed)
+to clean the obfuscated text and solve the word problem.
+
 If the BU API is unreachable (network error, bad challenge, HTTP failure,
 parse failure, polling timeout), the adapter falls back to a deterministic
 simulation so the orchestrator can continue to the next adapter in the chain
@@ -25,6 +30,7 @@ import httpx
 
 from ..core.domain.entities import TraceEvent, TypedAction
 from ..core.domain.enums import AdapterType
+from ..infrastructure.llm_client import LLMClient
 from ..infrastructure.prisma_repositories import (
     bu_key_get_active, bu_key_put, bu_key_touch,
 )
@@ -47,136 +53,156 @@ _HTTP_TIMEOUT = 60.0        # default for misc calls
 
 
 # ---------------------------------------------------------------------------
-# Safe arithmetic parser (NO eval) for the BU signup math challenge.
+# Challenge solver — LLM-based (Phase 4).
 #
-# Implements a tiny recursive-descent parser for the grammar:
-#   expr   := term (('+' | '-') term)*
-#   term   := factor (('*' | '/') factor)*
-#   factor := ('-' | '+')? (NUMBER | '(' expr ')')
-# Only digits, '+', '-', '*', '/', '(', ')', '.' and whitespace are allowed.
-# Any other character raises ValueError — the caller falls back to simulation.
+# The BU signup endpoint returns an obfuscated word problem like:
+#   "A sToRe H\aS f-If<T*eEn Pe^RcEn>T oF>f. ItEmS- oVeR sIxT@y DoLlArS~ ..."
+#
+# The original arithmetic-only parser could not handle this (it extracted just
+# '*' and crashed). We now use the LLM (z-ai, already installed and working)
+# to:
+#   1. Clean the obfuscated text (strip non-alphanumeric noise, fix case)
+#   2. Solve the word problem
+#   3. Return the answer formatted with 2 decimal places
+#
+# Fallback: if the LLM is unavailable or returns garbage, we try a simple
+# regex-based number extraction as a last resort.
 # ---------------------------------------------------------------------------
 
-_ALLOWED_CHARS = re.compile(r"^[0-9+\-*/().\s]+$")
+
+def _clean_obfuscated_text(text: str) -> str:
+    """Clean obfuscated challenge text by removing noise characters.
+
+    The BU challenge inserts random punctuation between letters (e.g.,
+    "f-If<T*eEn" -> "fifteen") and alternates case randomly. We:
+    1. Remove all characters that aren't alphanumeric, space, or basic punctuation
+    2. Convert to lowercase (the random case alternation is noise)
+    3. Collapse multiple spaces and hyphens
+    4. Strip leading/trailing whitespace
+    """
+    # Keep only letters, digits, spaces, dots, commas, percent, hyphens, apostrophes
+    cleaned = re.sub(r"[^a-zA-Z0-9\s.,%'-]", "", text or "")
+    # Convert to lowercase — the alternating case is obfuscation noise
+    cleaned = cleaned.lower()
+    # Replace hyphens that split words (e.g., "mu-ltIpLy" -> "multiply")
+    # But keep hyphens in compound words like "four-th" -> "fourth"
+    # Strategy: remove hyphens that are between letters (they're noise)
+    cleaned = re.sub(r"(?<=[a-z])-(?=[a-z])", "", cleaned)
+    # Collapse multiple spaces
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+async def _solve_challenge_via_llm(challenge_text: str) -> str:
+    """Solve the BU signup challenge using the LLM (multi-strategy).
+
+    The challenge is an obfuscated word problem with:
+    - Random punctuation between letters (cleaned)
+    - Alternating case (lowercased)
+    - Number words in multiple languages (English, Spanish, Portuguese)
+      that are phonetically deformed
+
+    We try multiple LLM attempts with different prompt strategies.
+    Returns the answer as a string with 2 decimal places.
+    Raises ValueError if all attempts fail.
+    """
+    cleaned = _clean_obfuscated_text(challenge_text)
+    if not cleaned:
+        raise ValueError(f"challenge text is empty after cleaning: {challenge_text!r}")
+
+    llm = LLMClient()
+
+    prompts = [
+        (
+            f"This is an obfuscated word problem. The obfuscation includes:\n"
+            f"- Random punctuation (already removed)\n"
+            f"- Alternating case (already lowercased)\n"
+            f"- Number words in English, Spanish, and Portuguese that may be deformed\n"
+            f"  (e.g. 'tu'='two', 'cento'='100', 'sessenta'='60', 'oito'='8', 'sete'='7')\n\n"
+            f"Cleaned text: {cleaned}\n\n"
+            f"Decode the number words, solve the math, and reply with ONLY the numeric "
+            f"answer to 2 decimal places. No explanation. Example: '16.33'"
+        ),
+        (
+            f"Raw obfuscated challenge: {challenge_text}\n\n"
+            f"Cleaned version: {cleaned}\n\n"
+            f"This is a math word problem with multilingual number words. "
+            f"Decode the numbers (English: two=2, eight=8; Spanish: dos=2, ocho=8; "
+            f"Portuguese: cento=100, sessenta=60, oito=8, sete=7, vinte=20, dois=2). "
+            f"Solve the problem and reply with ONLY the numeric answer to 2 decimal places."
+        ),
+        (
+            f"Solve this word problem. The text may contain deformed/multilingual number words.\n\n"
+            f"{cleaned}\n\n"
+            f"Reply with ONLY the numeric answer to 2 decimal places."
+        ),
+    ]
+
+    system = (
+        "You are a precise math solver that decodes obfuscated word problems. "
+        "The input may contain number words in English, Spanish, or Portuguese "
+        "that are phonetically deformed. Decode them, solve the math, and return "
+        "ONLY the final numeric answer with exactly 2 decimal places. "
+        "No text, no explanation. Example: '16.33' or '144.00'"
+    )
+
+    last_error = None
+    for i, prompt in enumerate(prompts):
+        try:
+            raw = await asyncio.wait_for(
+                llm.complete(prompt, system), timeout=15.0,
+            )
+            answer = _extract_numeric_answer(raw)
+            if answer is not None:
+                return answer
+            last_error = f"attempt {i+1}: non-numeric answer: {raw!r}"
+        except asyncio.TimeoutError:
+            last_error = f"attempt {i+1}: LLM timed out"
+        except Exception as exc:
+            last_error = f"attempt {i+1}: {exc}"
+
+    raise ValueError(f"all LLM attempts failed: {last_error}")
+
+
+def _extract_numeric_answer(raw: str) -> str | None:
+    """Extract a numeric answer with 2 decimal places from LLM output.
+
+    Handles formats like "144.00", "The answer is 144.00", "144", "$144.00".
+    """
+    if not raw:
+        return None
+    cleaned = raw.strip().strip("`").replace("$", "").replace("\u20ac", "").replace("\u00a3", "")
+    match = re.search(r"(\d+(?:\.\d+)?)", cleaned)
+    if not match:
+        return None
+    try:
+        num = float(match.group(1))
+        return f"{num:.2f}"
+    except ValueError:
+        return None
 
 
 def _solve_math_challenge(challenge_text: str) -> str:
-    """Extract a simple arithmetic expression from ``challenge_text`` and solve it.
+    """Synchronous fallback solver — tries regex extraction only.
 
-    The BU signup endpoint returns text like ``"What is 12 * 12?"``. We pull
-    out the first arithmetic-looking substring, evaluate it with a strict
-    recursive-descent parser (NO ``eval`` / ``ast.literal_eval``), and return
-    the answer formatted with two decimal places, e.g. ``"144.00"``.
-
-    Raises ``ValueError`` if no expression can be parsed or the expression
-    contains a forbidden character.
+    This is kept for backward compat. The primary solver is now
+    ``_solve_challenge_via_llm`` (async, LLM-powered).
     """
-    # Find the first run of allowed arithmetic characters (at least 1 digit).
-    match = re.search(r"[0-9+\-*/().\s]{3,}", challenge_text or "")
-    if not match:
-        raise ValueError(f"no arithmetic expression in challenge: {challenge_text!r}")
-    expr = match.group(0).strip()
-    if not _ALLOWED_CHARS.match(expr):
-        raise ValueError(f"forbidden characters in expression: {expr!r}")
-    if not any(c.isdigit() for c in expr):
-        raise ValueError(f"expression contains no digits: {expr!r}")
-
-    value = _ArithmeticParser(expr).parse()
-    return f"{value:.2f}"
-
-
-class _ArithmeticParser:
-    """Recursive-descent parser for + - * / ( ) and decimal numbers."""
-
-    def __init__(self, text: str) -> None:
-        self._text = text
-        self._pos = 0
-
-    def parse(self) -> float:
-        value = self._expr()
-        self._skip_ws()
-        if self._pos != len(self._text):
-            raise ValueError(f"trailing characters at pos {self._pos}: {self._text!r}")
-        return float(value)
-
-    def _expr(self) -> float:
-        value = self._term()
-        while True:
-            self._skip_ws()
-            op = self._peek()
+    match = re.search(r"(\d+(?:\.\d+)?)\s*([+\-*/])\s*(\d+(?:\.\d+)?)", challenge_text or "")
+    if match:
+        try:
+            a, op, b = float(match.group(1)), match.group(2), float(match.group(3))
             if op == "+":
-                self._pos += 1
-                value = value + self._term()
+                return f"{a + b:.2f}"
             elif op == "-":
-                self._pos += 1
-                value = value - self._term()
-            else:
-                break
-        return value
-
-    def _term(self) -> float:
-        value = self._factor()
-        while True:
-            self._skip_ws()
-            op = self._peek()
-            if op == "*":
-                self._pos += 1
-                value = value * self._factor()
-            elif op == "/":
-                self._pos += 1
-                divisor = self._factor()
-                if divisor == 0:
-                    raise ValueError("division by zero in challenge")
-                value = value / divisor
-            else:
-                break
-        return value
-
-    def _factor(self) -> float:
-        self._skip_ws()
-        op = self._peek()
-        if op == "+":
-            self._pos += 1
-            return self._factor()
-        if op == "-":
-            self._pos += 1
-            return -self._factor()
-        if op == "(":
-            self._pos += 1  # consume '('
-            value = self._expr()
-            self._skip_ws()
-            if self._peek() != ")":
-                raise ValueError(f"expected ')' at pos {self._pos}")
-            self._pos += 1  # consume ')'
-            return value
-        return self._number()
-
-    def _number(self) -> float:
-        self._skip_ws()
-        start = self._pos
-        seen_dot = False
-        while self._pos < len(self._text):
-            c = self._text[self._pos]
-            if c.isdigit():
-                self._pos += 1
-            elif c == "." and not seen_dot:
-                seen_dot = True
-                self._pos += 1
-            else:
-                break
-        if start == self._pos:
-            raise ValueError(f"expected number at pos {self._pos}: {self._text!r}")
-        return float(self._text[start:self._pos])
-
-    def _peek(self) -> str:
-        self._skip_ws()
-        if self._pos >= len(self._text):
-            return ""
-        return self._text[self._pos]
-
-    def _skip_ws(self) -> None:
-        while self._pos < len(self._text) and self._text[self._pos].isspace():
-            self._pos += 1
+                return f"{a - b:.2f}"
+            elif op == "*":
+                return f"{a * b:.2f}"
+            elif op == "/" and b != 0:
+                return f"{a / b:.2f}"
+        except (ValueError, ZeroDivisionError):
+            pass
+    raise ValueError(f"could not solve challenge synchronously: {challenge_text!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -506,8 +532,13 @@ class BrowserUseAdapter(ExecutionAdapter):
                 raise RuntimeError(
                     f"signup returned no challenge: {signup_data!r}")
 
-            # 2. Solve the math challenge safely (no eval).
-            answer = _solve_math_challenge(challenge_text)
+            # 2. Solve the challenge via LLM (Phase 4 — the challenge is an
+            #    obfuscated word problem, not simple arithmetic).
+            try:
+                answer = await _solve_challenge_via_llm(challenge_text)
+            except ValueError:
+                # Fall back to the sync regex solver as a last resort.
+                answer = _solve_math_challenge(challenge_text)
 
             # 3. POST /cloud/signup/verify → api_key.
             verify_resp = await client.post(
