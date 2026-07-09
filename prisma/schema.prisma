@@ -279,6 +279,7 @@ model RepairKnowledge {
   failureCount    Int      @default(0)
   autoAppliedCount Int     @default(0)
   status          String   @default("active")
+  embeddingText   String   @default("")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   lastUsedAt      DateTime?

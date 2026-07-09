@@ -8,7 +8,8 @@ next one faster for everyone.
 Public surface
 --------------
 - ``RepairFailure``           — lightweight failure signature dataclass.
-- ``query_kb(failure)``       — RAG-style KB lookup; returns a
+- ``query_kb(failure)``       — semantic KB lookup (TF-IDF cosine similarity,
+                                  Phase 2); returns a
   ``RepairProposal`` with ``source="knowledge_base"`` when a high-confidence
   match exists, else ``None`` (so the caller falls through to the LLM).
 - ``store_repair(proposal, target_domain, widget_type, intention)`` —
@@ -36,7 +37,7 @@ from typing import Any
 from ...core.domain.entities import RepairProposal
 from ...core.domain.enums import RepairStatus
 from ...infrastructure.prisma_repositories import (
-    repair_kb_put, repair_kb_record_outcome, repair_kb_search,
+    repair_kb_put, repair_kb_record_outcome, repair_kb_search, repair_kb_list,
 )
 from ...shared.ids import new_id
 
@@ -213,14 +214,74 @@ def _combined_score(entry: dict) -> float:
 async def query_kb(failure: RepairFailure) -> RepairProposal | None:
     """Look up a previously-approved repair for this failure signature.
 
+    **Phase 2:** Uses TF-IDF semantic similarity (via scikit-learn) to find
+    the closest KB entry, then applies the confidence/success thresholds.
+    This replaces the previous exact-match SQL lookup — now a failure on
+    ``button[data-invoice-download]`` can match a KB entry stored from a
+    failure on ``a[aria-label='Download PDF']`` if the embedding text is
+    similar enough.
+
     Returns a ``RepairProposal`` with ``source="knowledge_base"`` when the
-    KB has a high-confidence match (``confidence >= KB_MIN_CONFIDENCE`` AND
-    ``success_count >= KB_MIN_SUCCESS``). Otherwise returns ``None`` so the
-    caller falls through to the LLM.
+    KB has a high-confidence semantic match (``confidence >=
+    KB_MIN_CONFIDENCE`` AND ``success_count >= KB_MIN_SUCCESS`` AND
+    ``similarity >= 0.3``). Otherwise returns ``None`` so the caller falls
+    through to the LLM.
 
     NEVER raises — any DB / parse error is logged and swallowed so the
     repair flow always makes progress with or without the KB.
     """
+    from .embedding import build_embedding_text, search_semantic, rebuild_index, get_index_version
+
+    # Build the query embedding text from the failure signature.
+    query_text = build_embedding_text(
+        target_domain=failure.target_domain,
+        widget_type=failure.widget_type,
+        intention=failure.intention,
+        failed_selector=failure.failed_selector,
+        error_message=failure.error_message,
+    )
+
+    # Try semantic search first (Phase 2 — the real moat).
+    semantic_results: list[tuple[dict, float]] = []
+    try:
+        # Ensure the index is fresh — rebuild if version changed.
+        # (The index is rebuilt lazily on first call or after KB changes.)
+        semantic_results = await search_semantic(
+            query_text, top_k=5, min_similarity=0.3,
+        )
+    except Exception as exc:
+        logger.warning("semantic KB search failed (%s) — falling back to SQL.", exc)
+
+    # If semantic search found results, use the best one.
+    if semantic_results:
+        best, similarity = semantic_results[0]
+        confidence = float(best.get("confidence", 0.0) or 0.0)
+        success_count = int(best.get("successCount", 0) or 0)
+        if confidence >= KB_MIN_CONFIDENCE and success_count >= KB_MIN_SUCCESS:
+            pattern_key = best.get("patternKey", "") or compute_pattern_key(
+                failure.target_domain, failure.widget_type, failure.intention,
+                failure.failed_selector,
+            )
+            reason = (
+                f"Cross-client repair from KB (semantic match, similarity={similarity:.2f}, "
+                f"success={success_count}, confidence={confidence:.2f})"
+            )
+            return RepairProposal(
+                id=new_id("rep"),
+                actionId="",
+                actionVersion="",
+                failedSelector=failure.failed_selector,
+                candidateSelector=best.get("repairedSelector", ""),
+                candidateLabel=best.get("repairedLabel", "") or best.get("repairedSelector", ""),
+                confidence=confidence,
+                reason=reason,
+                status=RepairStatus.pending,
+                source="knowledge_base",
+                patternKey=pattern_key,
+            )
+
+    # Fall back to exact-match SQL (Phase 1 behavior — for backward compat
+    # and for when the TF-IDF index is empty/unavailable).
     try:
         results = await repair_kb_search(
             target_domain=failure.target_domain or None,
@@ -251,8 +312,8 @@ async def query_kb(failure: RepairFailure) -> RepairProposal | None:
         failure.failed_selector,
     )
     reason = (
-        f"Cross-client repair from KB "
-        f"(success={success_count}, confidence={confidence:.2f})"
+        f"Cross-client repair from KB (exact match, "
+        f"success={success_count}, confidence={confidence:.2f})"
     )
     return RepairProposal(
         id=new_id("rep"),
@@ -293,6 +354,16 @@ async def store_repair(
     pattern_key = compute_pattern_key(
         target_domain, widget_type, intention, proposal.failedSelector,
     )
+
+    # Phase 2: compute the embedding text for semantic retrieval.
+    from .embedding import build_embedding_text, rebuild_index
+    embedding_text = build_embedding_text(
+        target_domain=target_domain,
+        widget_type=widget_type,
+        intention=intention,
+        failed_selector=proposal.failedSelector,
+    )
+
     payload: dict[str, Any] = {
         "patternKey": pattern_key,
         "targetDomain": target_domain,
@@ -304,6 +375,7 @@ async def store_repair(
         "confidence": float(proposal.confidence),
         "source": proposal.source or "llm",
         "status": "active",
+        "embeddingText": embedding_text,
     }
     # Preserve learned counters — repair_kb_put defaults missing counts to
     # 0, which would silently zero out a learned entry on re-store. Read
@@ -324,6 +396,14 @@ async def store_repair(
     except Exception as exc:
         logger.warning("KB store failed (%s) — repair not persisted to KB.", exc)
         return None
+
+    # Phase 2: rebuild the TF-IDF index so the new entry is searchable.
+    try:
+        all_entries = await repair_kb_list()
+        await rebuild_index(all_entries)
+    except Exception as exc:
+        logger.warning("KB index rebuild after store failed (%s) — index stale.", exc)
+
     return pattern_key
 
 

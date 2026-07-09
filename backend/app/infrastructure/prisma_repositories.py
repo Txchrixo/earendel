@@ -221,6 +221,7 @@ class RepairKnowledgeModel(Base):
     failureCount = Column(Integer, default=0)
     autoAppliedCount = Column(Integer, default=0)
     status = Column(String, default="active")
+    embeddingText = Column(Text, default="")
     createdAt = Column(DateTime, default=datetime.utcnow)
     updatedAt = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     lastUsedAt = Column(DateTime, nullable=True)
@@ -297,6 +298,23 @@ def _add_missing_columns(conn) -> None:
         try:
             conn.execute(text(
                 "ALTER TABLE \"RepairProposal\" ADD COLUMN \"patternKey\" VARCHAR"
+            ))
+        except Exception:
+            pass
+
+    # RepairKnowledge: embeddingText (Phase 2 — semantic retrieval).
+    # Stores the canonical text used for TF-IDF semantic similarity.
+    try:
+        rk_cols = {row[1] for row in conn.execute(
+            text("PRAGMA table_info('RepairKnowledge')")
+        ).fetchall()}
+    except Exception:
+        rk_cols = set()
+    if rk_cols and "embeddingText" not in rk_cols:
+        try:
+            conn.execute(text(
+                'ALTER TABLE "RepairKnowledge" ADD COLUMN "embeddingText" '
+                "TEXT DEFAULT ''"
             ))
         except Exception:
             pass
@@ -1032,6 +1050,7 @@ async def repair_kb_put(data: dict) -> dict:
             "failureCount": int(data.get("failureCount", 0)),
             "autoAppliedCount": int(data.get("autoAppliedCount", 0)),
             "status": data.get("status", "active"),
+            "embeddingText": data.get("embeddingText", ""),
             "lastUsedAt": _iso_to_dt(data.get("lastUsedAt")),
             "updatedAt": datetime.utcnow(),
         }
@@ -1112,7 +1131,13 @@ async def repair_kb_search(
     min_success: int = 0,
     limit: int = 10,
 ) -> list[dict]:
-    """RAG-style lookup for repair patterns matching a failure signature."""
+    """Categorical SQL lookup for repair patterns matching a failure signature.
+
+    Phase 2 note: this is the exact-match fallback. The primary lookup is now
+    semantic (TF-IDF cosine similarity) via ``embedding.search_semantic()``.
+    This SQL function is kept for backward compatibility and for when the
+    TF-IDF index is empty/unavailable.
+    """
     async with prisma_session() as s:
         stmt = select(RepairKnowledgeModel).where(
             RepairKnowledgeModel.status == "active")
@@ -1168,6 +1193,7 @@ def _repair_kb_to_dict(row: RepairKnowledgeModel) -> dict:
         "failureCount": row.failureCount,
         "autoAppliedCount": row.autoAppliedCount,
         "status": row.status,
+        "embeddingText": row.embeddingText or "",
         "createdAt": _dt_to_iso(row.createdAt),
         "updatedAt": _dt_to_iso(row.updatedAt),
         "lastUsedAt": _dt_to_iso(row.lastUsedAt),

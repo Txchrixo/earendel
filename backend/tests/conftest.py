@@ -125,9 +125,25 @@ async def seeded_db() -> AsyncIterator[None]:
     await registry.load()
     if not registry.list():
         await seed_run(registry)
+
+    # Phase 2: reset the TF-IDF embedding index so tests don't pollute
+    # each other with stale semantic matches from previous test DBs.
+    try:
+        from app.core.repair import embedding as _emb
+        await _emb.rebuild_index([])  # empty index = no semantic matches
+    except Exception:
+        pass
+
     yield
     await dispose_prisma_engine()
     await dispose_engine()
+
+    # Also clear the index after each test to prevent cross-test leakage.
+    try:
+        from app.core.repair import embedding as _emb
+        await _emb.rebuild_index([])
+    except Exception:
+        pass
 
 
 @pytest_asyncio.fixture

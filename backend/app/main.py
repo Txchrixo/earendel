@@ -177,6 +177,17 @@ async def _startup() -> None:
         logger.info("Actions already present (%d) — skipping seed.",
                     len(registry.list()))
 
+    # Phase 2: build the TF-IDF semantic index for the repair KB at startup
+    # so the first failure query benefits from semantic retrieval.
+    try:
+        from .core.repair.embedding import rebuild_index
+        from .infrastructure.prisma_repositories import repair_kb_list
+        all_entries = await repair_kb_list()
+        indexed = await rebuild_index(all_entries)
+        logger.info("Repair KB TF-IDF index: %d entries indexed.", indexed)
+    except Exception as exc:
+        logger.warning("Repair KB index build failed at startup: %s", exc)
+
 
 @app.on_event("shutdown")
 async def _shutdown() -> None:
