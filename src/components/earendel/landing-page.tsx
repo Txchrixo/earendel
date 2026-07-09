@@ -110,20 +110,42 @@ export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
         </div>
       </nav>
 
-      {/* Hero — interactive animated background */}
+      {/* Hero — always-animated interactive background */}
       <section ref={heroRef} className="relative overflow-hidden pt-14" style={{ "--mx": "50%", "--my": "30%" } as React.CSSProperties}>
-        {/* Animated grid that reacts to mouse position */}
-        <div
-          className="absolute inset-0 transition-all duration-300 ease-out"
+        {/* Animated grid — slowly drifting + reacts to mouse */}
+        <motion.div
+          className="absolute inset-0"
           style={{
             backgroundImage: `
-              linear-gradient(rgba(66, 64, 61, 0.4) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(66, 64, 61, 0.4) 1px, transparent 1px)
+              linear-gradient(rgba(66, 64, 61, 0.35) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(66, 64, 61, 0.35) 1px, transparent 1px)
             `,
             backgroundSize: "48px 48px",
             maskImage: `radial-gradient(circle 600px at var(--mx) var(--my), rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.3) 40%, transparent 70%)`,
             WebkitMaskImage: `radial-gradient(circle 600px at var(--mx) var(--my), rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.3) 40%, transparent 70%)`,
           }}
+          animate={{ backgroundPositionX: ["0px", "48px"], backgroundPositionY: ["0px", "48px"] }}
+          transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+          aria-hidden
+        />
+
+        {/* Conic gradient sweep — slow rotating light beam */}
+        <motion.div
+          className="absolute left-1/2 top-1/2 h-[800px] w-[800px] -translate-x-1/2 -translate-y-1/2"
+          style={{
+            background: `conic-gradient(from 0deg at 50% 50%,
+              transparent 0deg,
+              rgba(107, 88, 118, 0.08) 30deg,
+              transparent 60deg,
+              transparent 180deg,
+              rgba(122, 133, 72, 0.06) 210deg,
+              transparent 240deg,
+              transparent 360deg)`,
+            borderRadius: "50%",
+            filter: "blur(40px)",
+          }}
+          animate={{ rotate: 360 }}
+          transition={{ duration: 40, repeat: Infinity, ease: "linear" }}
           aria-hidden
         />
 
@@ -136,26 +158,42 @@ export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
           aria-hidden
         />
 
-        {/* Floating orbs — slow drift animation */}
+        {/* Floating orbs — slow drift, always animating */}
         <motion.div
-          className="absolute left-[10%] top-[15%] h-32 w-32 rounded-full"
-          style={{ background: "radial-gradient(circle, rgba(107,88,118,0.15) 0%, transparent 70%)" }}
-          animate={{ x: [0, 30, 0], y: [0, -20, 0] }}
-          transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute left-[8%] top-[12%] h-36 w-36 rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(107,88,118,0.18) 0%, transparent 70%)" }}
+          animate={{ x: [0, 40, -10, 0], y: [0, -30, 10, 0], scale: [1, 1.15, 0.95, 1] }}
+          transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }}
           aria-hidden
         />
         <motion.div
-          className="absolute right-[15%] top-[25%] h-40 w-40 rounded-full"
-          style={{ background: "radial-gradient(circle, rgba(122,133,72,0.12) 0%, transparent 70%)" }}
-          animate={{ x: [0, -25, 0], y: [0, 15, 0] }}
-          transition={{ duration: 15, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute right-[12%] top-[20%] h-44 w-44 rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(122,133,72,0.14) 0%, transparent 70%)" }}
+          animate={{ x: [0, -35, 15, 0], y: [0, 20, -10, 0], scale: [1, 0.9, 1.1, 1] }}
+          transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
           aria-hidden
         />
         <motion.div
-          className="absolute left-[60%] top-[10%] h-24 w-24 rounded-full"
-          style={{ background: "radial-gradient(circle, rgba(201,166,107,0.1) 0%, transparent 70%)" }}
-          animate={{ x: [0, 20, 0], y: [0, 25, 0] }}
-          transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute left-[55%] top-[8%] h-28 w-28 rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(201,166,107,0.12) 0%, transparent 70%)" }}
+          animate={{ x: [0, 25, -15, 0], y: [0, 30, 5, 0], scale: [1, 1.2, 0.9, 1] }}
+          transition={{ duration: 11, repeat: Infinity, ease: "easeInOut" }}
+          aria-hidden
+        />
+        <motion.div
+          className="absolute left-[25%] top-[40%] h-24 w-24 rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(139,111,90,0.1) 0%, transparent 70%)" }}
+          animate={{ x: [0, -20, 25, 0], y: [0, 15, -20, 0], scale: [1, 1.1, 0.85, 1] }}
+          transition={{ duration: 13, repeat: Infinity, ease: "easeInOut" }}
+          aria-hidden
+        />
+
+        {/* Pulsing center glow — breathing effect */}
+        <motion.div
+          className="absolute left-1/2 top-[30%] h-[300px] w-[600px] -translate-x-1/2 -translate-y-1/2"
+          style={{ background: "radial-gradient(ellipse at center, rgba(107,88,118,0.1) 0%, transparent 60%)" }}
+          animate={{ opacity: [0.3, 0.6, 0.3], scale: [0.9, 1.05, 0.9] }}
+          transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
           aria-hidden
         />
 
