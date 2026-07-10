@@ -69,6 +69,8 @@ PUBLIC_PREFIXES = (
     "/api/v1/readyz",
     "/api/v1/metrics",
     "/api/v1/auth/",
+    "/api/v1/oauth/callback",
+    "/api/v1/oauth/providers",
     "/docs",
     "/openapi",
     "/redoc",
@@ -497,6 +499,10 @@ app.include_router(evaluation_router, prefix="/api/v1")
 # Phase 8: Multi-tenant registry
 from .modules.registry.router import router as registry_router  # noqa: E402
 app.include_router(registry_router, prefix="/api/v1")
+
+# Phase 10: OAuth2 connectors
+from .modules.oauth.router import router as oauth_router  # noqa: E402
+app.include_router(oauth_router, prefix="/api/v1")
 
 
 if __name__ == "__main__":

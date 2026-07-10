@@ -382,3 +382,24 @@ model UsageEvent {
   @@index([subscriberTenantId])
   @@index([createdAt])
 }
+
+// ============ OAuth2 Connectors (Phase 10) ============
+
+/// OAuth2 tokens for a connector. Stores access + refresh tokens
+/// with expiry. The internal_route adapter uses these instead of
+/// session cookies for OAuth2-authenticated connectors.
+model OAuthToken {
+  id              String   @id @default(cuid())
+  connectorId     String
+  accessToken     String
+  refreshToken    String?
+  tokenType       String   @default("Bearer")
+  expiresAt       DateTime?
+  scope           String   @default("")
+  status          String   @default("active")  // active, expired, revoked
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([connectorId])
+  @@index([status])
+}

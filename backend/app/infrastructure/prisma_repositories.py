@@ -296,6 +296,22 @@ class UsageEventModel(Base):
     createdAt = Column(DateTime, default=datetime.utcnow)
 
 
+# ---- OAuth2 Connectors (Phase 10) ----
+
+class OAuthTokenModel(Base):
+    __tablename__ = "OAuthToken"
+    id = Column(String, primary_key=True)
+    connectorId = Column(String, nullable=False)
+    accessToken = Column(String, nullable=False)
+    refreshToken = Column(String, nullable=True)
+    tokenType = Column(String, default="Bearer")
+    expiresAt = Column(DateTime, nullable=True)
+    scope = Column(String, default="")
+    status = Column(String, default="active")
+    createdAt = Column(DateTime, default=datetime.utcnow)
+    updatedAt = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # ---- Engine init ----
 
 async def init_prisma_engine() -> None:
@@ -1550,4 +1566,76 @@ def _usage_event_to_dict(row: UsageEventModel) -> dict:
         "executionId": row.executionId,
         "status": row.status, "costCents": row.costCents,
         "createdAt": _dt_to_iso(row.createdAt),
+    }
+
+
+# ============================================================
+# OAuthToken (Phase 10 - OAuth2 Connectors)
+# ============================================================
+
+async def oauth_token_put(data: dict) -> dict:
+    """Upsert an OAuth2 token for a connector."""
+    async with prisma_session() as s:
+        result = await s.execute(
+            select(OAuthTokenModel).where(
+                OAuthTokenModel.connectorId == data["connectorId"],
+                OAuthTokenModel.status == "active"))
+        existing = result.scalars().first()
+        fields = {
+            "connectorId": data["connectorId"],
+            "accessToken": data.get("accessToken", ""),
+            "refreshToken": data.get("refreshToken"),
+            "tokenType": data.get("tokenType", "Bearer"),
+            "expiresAt": _iso_to_dt(data.get("expiresAt")),
+            "scope": data.get("scope", ""),
+            "status": data.get("status", "active"),
+            "updatedAt": datetime.utcnow(),
+        }
+        if existing is None:
+            fields["id"] = data.get("id") or f"oaut_{data['connectorId'][:16]}"
+            fields["createdAt"] = datetime.utcnow()
+            s.add(OAuthTokenModel(**fields))
+        else:
+            for k, v in fields.items():
+                setattr(existing, k, v)
+        await s.commit()
+    return data
+
+
+async def oauth_token_get_active(connector_id: str) -> dict | None:
+    """Get the active OAuth2 token for a connector."""
+    async with prisma_session() as s:
+        result = await s.execute(
+            select(OAuthTokenModel).where(
+                OAuthTokenModel.connectorId == connector_id,
+                OAuthTokenModel.status == "active"))
+        row = result.scalars().first()
+        return _oauth_token_to_dict(row) if row else None
+
+
+async def oauth_token_mark_expired(connector_id: str) -> None:
+    """Mark all tokens for a connector as expired."""
+    async with prisma_session() as s:
+        result = await s.execute(
+            select(OAuthTokenModel).where(
+                OAuthTokenModel.connectorId == connector_id,
+                OAuthTokenModel.status == "active"))
+        for row in result.scalars():
+            row.status = "expired"
+            row.updatedAt = datetime.utcnow()
+        await s.commit()
+
+
+def _oauth_token_to_dict(row: OAuthTokenModel) -> dict:
+    return {
+        "id": row.id,
+        "connectorId": row.connectorId,
+        "accessToken": row.accessToken,
+        "refreshToken": row.refreshToken,
+        "tokenType": row.tokenType,
+        "expiresAt": _dt_to_iso(row.expiresAt),
+        "scope": row.scope,
+        "status": row.status,
+        "createdAt": _dt_to_iso(row.createdAt),
+        "updatedAt": _dt_to_iso(row.updatedAt),
     }

@@ -239,9 +239,23 @@ class InternalRouteAdapter(ExecutionAdapter):
         ``ACME_SESSION_COOKIE``). This is the pre-Phase-1-B path, kept for
         demo / test deployments that don't use the Chrome extension.
 
-        Returns ``""`` if neither path yields a cookie — the caller treats
+        Returns ``""`` if neither path yields a cookie - the caller treats
         that as "no auth available" and falls through to the next fallback.
         """
+        # ---- Phase 10: OAuth2 token (preferred for oauth connectors)
+        try:
+            from ..infrastructure.prisma_repositories import (
+                connector_get, oauth_token_get_active,
+            )
+            conn = await connector_get(action.connectorId)
+            if conn and conn.get("authMethod") == "oauth":
+                token = await oauth_token_get_active(action.connectorId)
+                if token and token.get("accessToken"):
+                    # Return the access token (caller sets it as Bearer header)
+                    return token["accessToken"]
+        except Exception as exc:
+            logger.debug("OAuth2 token lookup failed: %s", exc)
+
         # ---- Preferred: connector vault (cookies captured during recording)
         try:
             # Local import keeps the adapter importable even if the prisma
