@@ -10,10 +10,19 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Icon, type ErIconName } from "./icon";
 import { useStudio } from "@/lib/earendel/store";
 import type { StudioView } from "@/lib/earendel/types";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
+import { toast } from "sonner";
 
 interface NavItem {
   id: StudioView;
@@ -165,23 +174,66 @@ function Header() {
       <Button onClick={() => setView("connectors")} className="hidden sm:inline-flex shrink-0 rounded-full">
         <Icon name="plus" size={16} aria-hidden /> New
       </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="Notifications"
-        className="relative shrink-0"
-      >
-        <Icon name="bell" size={18} aria-hidden />
-        <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-accent" aria-hidden />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="Account"
-        className="rounded-full bg-secondary shrink-0"
-      >
-        <Icon name="person" size={18} aria-hidden />
-      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Notifications"
+            className="relative shrink-0"
+          >
+            <Icon name="bell" size={18} aria-hidden />
+            <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-accent" aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-72">
+          <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => { setView("monitoring"); toast.info("Opening monitoring view"); }}>
+            <Icon name="bell" size={14} aria-hidden /> Recent repair proposals
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => { setView("executions"); toast.info("Opening executions view"); }}>
+            <Icon name="executions" size={14} aria-hidden /> Recent execution results
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => { setView("discovery"); toast.info("Opening discovery view"); }}>
+            <Icon name="globe" size={14} aria-hidden /> Stale endpoints
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => toast.success("All caught up! No new notifications.")}>
+            <Icon name="check" size={14} aria-hidden /> Mark all as read
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Account"
+            className="rounded-full bg-secondary shrink-0"
+          >
+            <Icon name="person" size={18} aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuLabel>demo@earendel.io</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => { setView("dashboard"); toast.info("Opening dashboard"); }}>
+            <Icon name="dashboard" size={14} aria-hidden /> Dashboard
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => { setView("publishing"); toast.info("Opening publishing view"); }}>
+            <Icon name="publishing" size={14} aria-hidden /> MCP Settings
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => toast.info("API key: check the Publishing view for MCP config")}>
+            <Icon name="key" size={14} aria-hidden /> API Key
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => { window.location.href = "/auth/signout"; }}>
+            <Icon name="signOut" size={14} aria-hidden /> Sign out
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </header>
   );
 }
@@ -197,11 +249,11 @@ function Footer() {
           </p>
         </div>
         <div className="flex items-center gap-4 er-caption text-muted-foreground">
-          <a className="hover:text-foreground" href="#">Docs</a>
+          <a className="hover:text-foreground transition-colors" href="/api/v1/readyz" target="_blank" rel="noopener noreferrer">Docs</a>
           <span aria-hidden>·</span>
-          <a className="hover:text-foreground" href="#">MCP registry</a>
+          <a className="hover:text-foreground transition-colors" href="#" onClick={(e) => { e.preventDefault(); useStudio.getState().setView("publishing"); }}>MCP registry</a>
           <span aria-hidden>·</span>
-          <a className="hover:text-foreground" href="#">Status</a>
+          <a className="hover:text-foreground transition-colors" href="/api/v1/healthz" target="_blank" rel="noopener noreferrer">Status</a>
           <span aria-hidden>·</span>
           <span>v{VERSION}</span>
         </div>

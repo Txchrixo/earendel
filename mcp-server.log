@@ -81,3 +81,13 @@ Earendel MCP Server running on port 3004
   JSON-RPC: POST http://localhost:3004/mcp
   SSE:      GET  http://localhost:3004/sse
   Health:   GET  http://localhost:3004/health
+Shutting down MCP server...
+Earendel MCP Server running on port 3004
+  JSON-RPC: POST http://localhost:3004/mcp
+  SSE:      GET  http://localhost:3004/sse
+  Health:   GET  http://localhost:3004/health
+Shutting down MCP server...
+Earendel MCP Server running on port 3004
+  JSON-RPC: POST http://localhost:3004/mcp
+  SSE:      GET  http://localhost:3004/sse
+  Health:   GET  http://localhost:3004/health

@@ -388,9 +388,9 @@ export function LandingPage({ onEnter, onAuth, onSignUp }: LandingPageProps) {
             <span className="er-caption text-muted-foreground">Earendel · v0.1.0</span>
           </div>
           <div className="flex items-center gap-4 er-caption text-muted-foreground">
-            <a className="hover:text-foreground" href="#">Docs</a>
-            <a className="hover:text-foreground" href="#">GitHub</a>
-            <a className="hover:text-foreground" href="#">MCP Registry</a>
+            <a className="hover:text-foreground transition-colors" href="https://github.com/Txchrixo/earendel" target="_blank" rel="noopener noreferrer">Docs</a>
+            <a className="hover:text-foreground transition-colors" href="https://github.com/Txchrixo/earendel" target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a className="hover:text-foreground transition-colors" href="https://github.com/Txchrixo/earendel#mcp-integration" target="_blank" rel="noopener noreferrer">MCP Registry</a>
           </div>
         </div>
       </footer>
