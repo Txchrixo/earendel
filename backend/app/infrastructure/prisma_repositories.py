@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Column, DateTime, Integer, String, Float, Boolean, Text, select, and_
+from sqlalchemy import Column, DateTime, Integer, String, Float, Boolean, Text, select, and_, UniqueConstraint
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, relationship as sa_relationship
 from sqlalchemy import ForeignKey
@@ -240,6 +240,60 @@ class BrowserUseKeyModel(Base):
     claimed = Column(Boolean, default=False)
     createdAt = Column(DateTime, default=datetime.utcnow)
     lastUsedAt = Column(DateTime, nullable=True)
+
+
+# ---- Multi-Tenant Registry (Option C) ----
+
+class TenantModel(Base):
+    __tablename__ = "Tenant"
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    slug = Column(String, nullable=False, unique=True)
+    plan = Column(String, default="free")
+    status = Column(String, default="active")
+    createdAt = Column(DateTime, default=datetime.utcnow)
+    updatedAt = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PublishedActionModel(Base):
+    __tablename__ = "PublishedAction"
+    id = Column(String, primary_key=True)
+    actionId = Column(String, nullable=False)
+    tenantId = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    signature = Column(String, nullable=False)
+    description = Column(Text, default="")
+    category = Column(String, default="other")
+    version = Column(String, default="0.1.0")
+    visibility = Column(String, default="public")
+    pricePerCall = Column(Float, default=0.0)
+    callCount = Column(Integer, default=0)
+    subscriberCount = Column(Integer, default=0)
+    status = Column(String, default="active")
+    publishedAt = Column(DateTime, default=datetime.utcnow)
+    updatedAt = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ActionSubscriptionModel(Base):
+    __tablename__ = "ActionSubscription"
+    id = Column(String, primary_key=True)
+    publishedActionId = Column(String, nullable=False)
+    subscriberTenantId = Column(String, nullable=False)
+    status = Column(String, default="active")
+    createdAt = Column(DateTime, default=datetime.utcnow)
+    cancelledAt = Column(DateTime, nullable=True)
+    __table_args__ = (UniqueConstraint("publishedActionId", "subscriberTenantId", name="_pub_sub_unique"),)
+
+
+class UsageEventModel(Base):
+    __tablename__ = "UsageEvent"
+    id = Column(String, primary_key=True)
+    publishedActionId = Column(String, nullable=False)
+    subscriberTenantId = Column(String, nullable=False)
+    executionId = Column(String, nullable=True)
+    status = Column(String, default="success")
+    costCents = Column(Float, default=0.0)
+    createdAt = Column(DateTime, default=datetime.utcnow)
 
 
 # ---- Engine init ----
@@ -1258,4 +1312,242 @@ def _bu_key_to_dict(row: BrowserUseKeyModel) -> dict:
         "claimed": row.claimed,
         "createdAt": _dt_to_iso(row.createdAt),
         "lastUsedAt": _dt_to_iso(row.lastUsedAt),
+    }
+
+
+# ============================================================
+# Tenant (Multi-Tenant Registry — Option C)
+# ============================================================
+
+async def tenant_put(data: dict) -> dict:
+    """Upsert a tenant by id."""
+    async with prisma_session() as s:
+        existing = await s.get(TenantModel, data["id"])
+        fields = {
+            "name": data.get("name", ""),
+            "slug": data.get("slug", ""),
+            "plan": data.get("plan", "free"),
+            "status": data.get("status", "active"),
+            "updatedAt": datetime.utcnow(),
+        }
+        if existing is None:
+            fields["id"] = data["id"]
+            fields["createdAt"] = datetime.utcnow()
+            s.add(TenantModel(**fields))
+        else:
+            for k, v in fields.items():
+                setattr(existing, k, v)
+        await s.commit()
+    return data
+
+
+async def tenant_list() -> list[dict]:
+    async with prisma_session() as s:
+        result = await s.execute(select(TenantModel).order_by(TenantModel.createdAt))
+        return [_tenant_to_dict(r) for r in result.scalars()]
+
+
+async def tenant_get_by_slug(slug: str) -> dict | None:
+    async with prisma_session() as s:
+        result = await s.execute(
+            select(TenantModel).where(TenantModel.slug == slug))
+        row = result.scalars().first()
+        return _tenant_to_dict(row) if row else None
+
+
+def _tenant_to_dict(row: TenantModel) -> dict:
+    return {
+        "id": row.id, "name": row.name, "slug": row.slug,
+        "plan": row.plan, "status": row.status,
+        "createdAt": _dt_to_iso(row.createdAt), "updatedAt": _dt_to_iso(row.updatedAt),
+    }
+
+
+# ============================================================
+# PublishedAction (Registry Catalog)
+# ============================================================
+
+async def published_action_put(data: dict) -> dict:
+    async with prisma_session() as s:
+        existing = await s.get(PublishedActionModel, data["id"])
+        fields = {
+            "actionId": data.get("actionId", ""),
+            "tenantId": data.get("tenantId", ""),
+            "name": data.get("name", ""),
+            "signature": data.get("signature", ""),
+            "description": data.get("description", ""),
+            "category": data.get("category", "other"),
+            "version": data.get("version", "0.1.0"),
+            "visibility": data.get("visibility", "public"),
+            "pricePerCall": float(data.get("pricePerCall", 0.0)),
+            "callCount": int(data.get("callCount", 0)),
+            "subscriberCount": int(data.get("subscriberCount", 0)),
+            "status": data.get("status", "active"),
+            "updatedAt": datetime.utcnow(),
+        }
+        if existing is None:
+            fields["id"] = data["id"]
+            fields["publishedAt"] = datetime.utcnow()
+            s.add(PublishedActionModel(**fields))
+        else:
+            for k, v in fields.items():
+                setattr(existing, k, v)
+        await s.commit()
+    return data
+
+
+async def published_action_list(
+    category: str | None = None, visibility: str | None = None,
+    status: str | None = None, q: str | None = None,
+) -> list[dict]:
+    """List published actions, optionally filtered."""
+    async with prisma_session() as s:
+        stmt = select(PublishedActionModel)
+        if category:
+            stmt = stmt.where(PublishedActionModel.category == category)
+        if visibility:
+            stmt = stmt.where(PublishedActionModel.visibility == visibility)
+        if status:
+            stmt = stmt.where(PublishedActionModel.status == status)
+        if q:
+            stmt = stmt.where(PublishedActionModel.name.contains(q))
+        stmt = stmt.order_by(PublishedActionModel.subscriberCount.desc())
+        result = await s.execute(stmt)
+        return [_published_action_to_dict(r) for r in result.scalars()]
+
+
+async def published_action_get(pub_id: str) -> dict | None:
+    async with prisma_session() as s:
+        row = await s.get(PublishedActionModel, pub_id)
+        return _published_action_to_dict(row) if row else None
+
+
+async def published_action_increment_call(pub_id: str) -> None:
+    async with prisma_session() as s:
+        row = await s.get(PublishedActionModel, pub_id)
+        if row:
+            row.callCount += 1
+            row.updatedAt = datetime.utcnow()
+            await s.commit()
+
+
+def _published_action_to_dict(row: PublishedActionModel) -> dict:
+    return {
+        "id": row.id, "actionId": row.actionId, "tenantId": row.tenantId,
+        "name": row.name, "signature": row.signature, "description": row.description,
+        "category": row.category, "version": row.version,
+        "visibility": row.visibility, "pricePerCall": row.pricePerCall,
+        "callCount": row.callCount, "subscriberCount": row.subscriberCount,
+        "status": row.status,
+        "publishedAt": _dt_to_iso(row.publishedAt), "updatedAt": _dt_to_iso(row.updatedAt),
+    }
+
+
+# ============================================================
+# ActionSubscription
+# ============================================================
+
+async def subscription_put(data: dict) -> dict:
+    async with prisma_session() as s:
+        result = await s.execute(
+            select(ActionSubscriptionModel).where(
+                ActionSubscriptionModel.publishedActionId == data["publishedActionId"],
+                ActionSubscriptionModel.subscriberTenantId == data["subscriberTenantId"]))
+        existing = result.scalars().first()
+        fields = {
+            "publishedActionId": data["publishedActionId"],
+            "subscriberTenantId": data["subscriberTenantId"],
+            "status": data.get("status", "active"),
+            "cancelledAt": _iso_to_dt(data.get("cancelledAt")),
+        }
+        if existing is None:
+            fields["id"] = data.get("id") or f"sub_{data['publishedActionId'][:8]}_{data['subscriberTenantId'][:8]}"
+            fields["createdAt"] = datetime.utcnow()
+            s.add(ActionSubscriptionModel(**fields))
+        else:
+            for k, v in fields.items():
+                setattr(existing, k, v)
+        await s.commit()
+    return data
+
+
+async def subscription_list_by_tenant(tenant_id: str) -> list[dict]:
+    async with prisma_session() as s:
+        result = await s.execute(
+            select(ActionSubscriptionModel).where(
+                ActionSubscriptionModel.subscriberTenantId == tenant_id,
+                ActionSubscriptionModel.status == "active"))
+        return [_subscription_to_dict(r) for r in result.scalars()]
+
+
+async def subscription_exists(pub_id: str, tenant_id: str) -> bool:
+    async with prisma_session() as s:
+        result = await s.execute(
+            select(ActionSubscriptionModel).where(
+                ActionSubscriptionModel.publishedActionId == pub_id,
+                ActionSubscriptionModel.subscriberTenantId == tenant_id,
+                ActionSubscriptionModel.status == "active"))
+        return result.scalars().first() is not None
+
+
+def _subscription_to_dict(row: ActionSubscriptionModel) -> dict:
+    return {
+        "id": row.id, "publishedActionId": row.publishedActionId,
+        "subscriberTenantId": row.subscriberTenantId,
+        "status": row.status,
+        "createdAt": _dt_to_iso(row.createdAt),
+        "cancelledAt": _dt_to_iso(row.cancelledAt),
+    }
+
+
+# ============================================================
+# UsageEvent (Metering)
+# ============================================================
+
+async def usage_event_put(data: dict) -> dict:
+    async with prisma_session() as s:
+        s.add(UsageEventModel(
+            id=data["id"],
+            publishedActionId=data["publishedActionId"],
+            subscriberTenantId=data["subscriberTenantId"],
+            executionId=data.get("executionId"),
+            status=data.get("status", "success"),
+            costCents=float(data.get("costCents", 0.0)),
+            createdAt=datetime.utcnow(),
+        ))
+        await s.commit()
+    return data
+
+
+async def usage_event_list_by_tenant(tenant_id: str, limit: int = 100) -> list[dict]:
+    async with prisma_session() as s:
+        result = await s.execute(
+            select(UsageEventModel).where(
+                UsageEventModel.subscriberTenantId == tenant_id
+            ).order_by(UsageEventModel.createdAt.desc()).limit(limit))
+        return [_usage_event_to_dict(r) for r in result.scalars()]
+
+
+async def usage_event_stats(tenant_id: str) -> dict:
+    """Aggregate usage stats for a tenant."""
+    events = await usage_event_list_by_tenant(tenant_id, limit=10000)
+    total = len(events)
+    successes = sum(1 for e in events if e["status"] == "success")
+    total_cost = sum(e["costCents"] for e in events)
+    return {
+        "totalCalls": total,
+        "successfulCalls": successes,
+        "failedCalls": total - successes,
+        "successRate": round(successes / total, 3) if total > 0 else 0.0,
+        "totalCostCents": round(total_cost, 2),
+    }
+
+
+def _usage_event_to_dict(row: UsageEventModel) -> dict:
+    return {
+        "id": row.id, "publishedActionId": row.publishedActionId,
+        "subscriberTenantId": row.subscriberTenantId,
+        "executionId": row.executionId,
+        "status": row.status, "costCents": row.costCents,
+        "createdAt": _dt_to_iso(row.createdAt),
     }

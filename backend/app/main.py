@@ -470,6 +470,10 @@ app.include_router(discovery_router, prefix="/api/v1")
 from .modules.evaluation.router import router as evaluation_router  # noqa: E402
 app.include_router(evaluation_router, prefix="/api/v1")
 
+# Phase 8: Multi-tenant registry
+from .modules.registry.router import router as registry_router  # noqa: E402
+app.include_router(registry_router, prefix="/api/v1")
+
 
 if __name__ == "__main__":
     import uvicorn

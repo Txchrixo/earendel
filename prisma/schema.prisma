@@ -308,3 +308,77 @@ model BrowserUseKey {
 
   @@index([status])
 }
+
+// ============ Multi-Tenant Registry (Option C — the network moat) ============
+
+/// A tenant in the multi-tenant registry. Each tenant has their own connectors
+/// and credentials but can subscribe to actions published by other tenants.
+model Tenant {
+  id              String   @id @default(cuid())
+  name            String
+  slug            String   @unique
+  plan            String   @default("free")  // free, pro, enterprise
+  status          String   @default("active")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([slug])
+  @@index([status])
+}
+
+/// A published action in the shared registry. When a tenant publishes an
+/// action, it becomes discoverable by other tenants who can subscribe to it.
+/// The subscriber uses their own credentials but the publisher's action definition.
+model PublishedAction {
+  id              String   @id @default(cuid())
+  actionId        String   // the source TypedAction id
+  tenantId        String   // the publishing tenant
+  name            String
+  signature       String
+  description     String   @default("")
+  category        String   @default("other")
+  version         String   @default("0.1.0")
+  visibility      String   @default("public")  // public, private
+  pricePerCall    Float    @default(0.0)  // in cents
+  callCount       Int      @default(0)
+  subscriberCount Int      @default(0)
+  status          String   @default("active")  // active, deprecated
+  publishedAt     DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([category])
+  @@index([visibility])
+  @@index([status])
+}
+
+/// A subscription: tenant B subscribes to tenant A's published action.
+/// The subscriber uses their own credentials at runtime.
+model ActionSubscription {
+  id              String   @id @default(cuid())
+  publishedActionId String
+  subscriberTenantId String
+  status          String   @default("active")  // active, cancelled
+  createdAt       DateTime @default(now())
+  cancelledAt     DateTime?
+
+  @@unique([publishedActionId, subscriberTenantId])
+  @@index([subscriberTenantId])
+  @@index([publishedActionId])
+}
+
+/// Metered usage event for billing. Every call to a subscribed action
+/// generates a UsageEvent.
+model UsageEvent {
+  id              String   @id @default(cuid())
+  publishedActionId String
+  subscriberTenantId String
+  executionId     String?
+  status          String   @default("success")  // success, failed
+  costCents       Float    @default(0.0)
+  createdAt       DateTime @default(now())
+
+  @@index([publishedActionId])
+  @@index([subscriberTenantId])
+  @@index([createdAt])
+}
