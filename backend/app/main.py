@@ -466,6 +466,10 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(bu_router, prefix="/api/v1")
 app.include_router(discovery_router, prefix="/api/v1")
 
+# Phase 7: Evaluation harness
+from .modules.evaluation.router import router as evaluation_router  # noqa: E402
+app.include_router(evaluation_router, prefix="/api/v1")
+
 
 if __name__ == "__main__":
     import uvicorn
