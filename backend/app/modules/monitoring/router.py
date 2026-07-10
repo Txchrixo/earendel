@@ -102,6 +102,30 @@ async def canary_run_endpoint(
     return await service.run_canary(registry, orchestrator, body.actionId)
 
 
+@router.get("/canary/scheduler")
+async def canary_scheduler_status() -> dict[str, Any]:
+    """Get the canary scheduler status (Phase 6).
+
+    Returns whether the scheduler is running, the next run time, and the interval.
+    """
+    from ...core.monitoring.canary_scheduler import get_scheduler_status
+    return get_scheduler_status()
+
+
+@router.post("/canary/run-all")
+async def canary_run_all_endpoint(
+    registry=Depends(get_action_registry),
+    orchestrator=Depends(get_orchestrator),
+    llm: LLMClient = Depends(get_llm_client),
+) -> dict[str, Any]:
+    """Manually trigger all canaries now (Phase 6).
+
+    Runs a canary for every published/testing action and returns the summary.
+    """
+    from ...core.monitoring.canary_scheduler import run_all_canaries
+    return await run_all_canaries(registry, orchestrator, llm)
+
+
 @router.post("/repairs/propose")
 async def propose_repair_endpoint(
     body: ProposeBody,

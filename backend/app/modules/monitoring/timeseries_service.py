@@ -6,7 +6,6 @@ sparkline and the monitoring reliability trend chart.
 """
 from __future__ import annotations
 
-import hashlib
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -23,8 +22,11 @@ async def timeseries(hours: int = 24) -> dict[str, Any]:
     """Build a hourly success-rate + execution-count series for the last N hours.
 
     Each point: {ts, successRate, total, successes, failures}. The last point
-    reflects the live current-hour data. Deterministic baseline is mixed in so
-    the chart always has shape even with sparse execution data.
+    reflects the live current-hour data.
+
+    Phase 6: synthetic baseline data has been removed. The chart now shows
+    REAL execution data only — including canary executions from the scheduler.
+    Hours with no executions show successRate=1.0 and total=0 (honest "no data").
     """
     now = datetime.utcnow()
     buckets: dict[datetime, dict[str, int]] = {}
@@ -43,17 +45,13 @@ async def timeseries(hours: int = 24) -> dict[str, Any]:
             elif e.status in (ExecutionStatus.failed, ExecutionStatus.degraded):
                 buckets[b]["failures"] += 1
 
-    # Deterministic baseline so the chart always has shape (simulates the
-    # hours where no real executions ran — a real production system would
-    # have continuous canary data).
+    # Phase 6: no more synthetic baseline — real data only.
     series: list[dict[str, Any]] = []
-    for i, (b, counts) in enumerate(buckets.items()):
-        seed = int(hashlib.sha256(f"{b.isoformat()}".encode()).hexdigest()[:6], 16)
-        baseline_total = 4 + (seed % 6)  # 4..9 baseline executions per hour
-        baseline_success_rate = 0.78 + (seed % 18) / 100  # 0.78..0.95
-        # Mix real data with baseline.
-        total = counts["total"] + baseline_total
-        successes = counts["successes"] + round(baseline_total * baseline_success_rate)
+    for b, counts in buckets.items():
+        total = counts["total"]
+        successes = counts["successes"]
+        # When there are no executions, show successRate=1.0 (no failures)
+        # rather than 0.0 (which would look like everything is broken).
         rate = round(successes / total, 3) if total > 0 else 1.0
         series.append({
             "ts": b.isoformat() + "Z",

@@ -188,10 +188,26 @@ async def _startup() -> None:
     except Exception as exc:
         logger.warning("Repair KB index build failed at startup: %s", exc)
 
+    # Phase 6: start the canary scheduler (runs every 15 minutes).
+    # Canaries auto-trigger repair proposals when they fail.
+    try:
+        from .core.monitoring.canary_scheduler import start_canary_scheduler
+        from .api.deps import get_orchestrator
+        orchestrator = get_orchestrator()
+        start_canary_scheduler(registry, orchestrator)
+    except Exception as exc:
+        logger.warning("Canary scheduler failed to start: %s", exc)
+
 
 @app.on_event("shutdown")
 async def _shutdown() -> None:
     """Dispose both DB engines on shutdown."""
+    # Phase 6: stop the canary scheduler
+    try:
+        from .core.monitoring.canary_scheduler import stop_canary_scheduler
+        stop_canary_scheduler()
+    except Exception:
+        pass
     await dispose_prisma_engine()
     await dispose_engine()
 
