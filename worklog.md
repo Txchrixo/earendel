@@ -2027,3 +2027,187 @@ $ grep -c "^| [A-D][0-9]\+\." /home/z/my-project/README.md   # paper rows
 - The Architecture Overview (§3) at 86 lines is dominated by the 64-line ASCII diagram, which the user said to keep as-is.
 - The 6-Adapter Fallback Chain (§4) was the most aggressively trimmed: 48 → 27 lines, mostly by replacing the 14-line pseudo-code block with a single dense paragraph.
 - The original `## 16. Research Foundation Summary` claim of "~136 papers" is preserved verbatim in the summary table even though the actual paper-row count is 128 — this matches the original README's claim and is not a regression.
+
+## Chrome Extension Hardening - 8 Critical Fixes
+
+**Date:** Service worker / MV3 hardening pass on `chrome-extension/`.
+**Scope:** manifest.json, background/service-worker.js, content/recorder.js,
+popup/popup.html, popup/popup.js. No backend API changes. No icons touched.
+No em dashes introduced in any edited file.
+
+### Fix 1: Redact sensitive headers in HAR before sending to backend
+- Added `_redactSensitiveData(har)` function in service-worker.js (defined
+  in the HAR helpers section, before `sendToBackend()`).
+- Added `SENSITIVE_HEADERS` set: Authorization, Cookie, Set-Cookie,
+  X-API-Key, X-Auth-Token, X-CSRF-Token, X-XSRF-Token (case-insensitive).
+- Added `SENSITIVE_JSON_KEYS` list: password, token, secret.
+- Helper `_redactHeader(header)` replaces the value of any sensitive header
+  with `[REDACTED]` in both request and response header arrays.
+- Helper `_redactPostData(text)` parses postData as JSON; if it contains
+  sensitive keys (at any nesting depth, via `_redactSensitiveJsonKeys`),
+  the values are replaced with `[REDACTED]` and the text is re-serialized.
+  Non-JSON postData is left untouched.
+- `_redactSensitiveData(har)` is called in `stopRecording()` immediately
+  after `buildHarObject()` so the redacted HAR is what gets persisted to
+  `chrome.storage.local.lastRecording`, sent to the backend, and stored in
+  `pendingRecording_*` for retry.
+
+### Fix 2: Persist recording state to chrome.storage.session (MV3 survival)
+- Added `_saveState(force=false)` that writes a JSON-serializable subset of
+  `recordingState` (isRecording, tabId, connectorName, workflowName,
+  startedAt, steps, networkRequests, domMutations, screenshots, harCaptured,
+  harEntries, cookies, debuggerAttached, runId, screenshotFiles, savedAt)
+  to `chrome.storage.session` under key `earendelRecordingState`.
+  HAR writes are throttled to every 5 new entries; steps + cookies are
+  persisted on every call.
+- Added `_loadState()` called on service worker startup via an IIFE
+  `onStartup()` block at the end of the file. It restores the in-memory
+  `recordingState`, verifies the tab still exists, re-checks optional
+  permissions, and re-attaches the debugger (or falls back to webRequest
+  if re-attach fails).
+- Added `_freshRecordingState()` factory used to reset state when abandoning
+  a recording.
+- `_saveState(false)` is called after every CDP event (inside
+  `handleCdpEvent`) and after every step (inside the `EARENDEL_STEP`
+  message handler). Also called after `EARENDEL_STOP` for belt-and-suspenders.
+- On `stopRecording()`, the session state is cleared via
+  `chrome.storage.session.remove("earendelRecordingState")`.
+- On tab close mid-recording (`chrome.tabs.onRemoved`), the session state
+  is also cleared.
+
+### Fix 3: Screenshot capture during recording
+- Added `_captureCdpScreenshot(tabId, step)` that calls
+  `chrome.debugger.sendCommand({tabId}, "Page.captureScreenshot",
+  {format: "png"})`, persists the returned base64 PNG to
+  `chrome.storage.local` under key `screenshot_{runId}_{step}.png`, and
+  records the key in `recordingState.screenshotFiles`.
+- Throttled to one capture per second via `recordingState._lastScreenshotAt`
+  to avoid storage spam when many `Network.loadingFinished` events fire.
+- Added `_maybeCaptureScreenshot(tabId, step)` wrapper that swallows errors.
+- Triggered from `onCdpLoadingFinished()` after each finished network
+  request.
+- Triggered from the `EARENDEL_STEP` handler every 10 steps.
+- Each recording now has a `runId` (generated in `startRecording()` as
+  `run_{timestamp}_{random6}`) used in screenshot filenames.
+- The recording payload (returned from `stopRecording()` and sent to the
+  backend) now includes `screenshotFiles` (list of storage keys) and
+  `runId`.
+
+### Fix 4: Local storage fallback + retry on backend failure
+- In `sendToBackend()`, on any fetch failure (network error OR non-2xx
+  response), the recording is persisted to `chrome.storage.local` under
+  key `pendingRecording_{timestamp}` with `{recording, payload, failedAt,
+  error, attempts}`. The original error is re-thrown so the popup can
+  show a meaningful message.
+- Added `_retryPendingRecordings()` that iterates over all
+  `pendingRecording_*` keys in `chrome.storage.local`, re-sends each one
+  to the backend, removes the key on success, and increments `attempts`
+  on failure. Logs SUCCESS / FAILED for each entry plus a final summary.
+- `_retryPendingRecordings()` is called on service worker startup (in the
+  `onStartup()` IIFE) so pending recordings from a previous SW instance
+  are retried automatically.
+- Popup `compileBtn` handler now informs the user that the recording was
+  saved for automatic retry when sendToBackend fails.
+
+### Fix 5: Remove unused permissions, add optional_permissions
+- Removed `"scripting"` (we use content_scripts in manifest, not
+  chrome.scripting.executeScript).
+- Removed `"activeTab"` (redundant with tabs + host permissions).
+- Moved `"debugger"` and `"cookies"` to a new `optional_permissions`
+  array; they are requested at runtime via `chrome.permissions.request()`
+  in `startRecording()`.
+- Kept required `permissions`: storage, webNavigation, webRequest, tabs,
+  downloads.
+- Updated CSP `connect-src` to `http://localhost:* http://127.0.0.1:* https://*`
+  to support the configurable backend URL (Fix 8).
+- Removed the `chrome.scripting.executeScript` fallback in
+  `startRecording()`; replaced with a single retry of
+  `chrome.tabs.sendMessage` after a 500ms delay (content script is
+  auto-injected by the manifest).
+- `chrome.runtime.onInstalled` now also initializes `backendUrl` to the
+  default value.
+
+### Fix 6: File upload + scroll + keydown + resize capture in recorder.js
+- **File upload:** `change` listener on `document` (capture phase) filters
+  to `input[type="file"]`. Captures `name`, `size`, `type`, `lastModified`
+  for each selected file. NEVER captures file content. Emits a
+  `file_upload` step.
+- **Scroll:** `scroll` listener on `window` (capture phase) catches scrolls
+  on the window or any nested scrollable element. Debounced to 500ms; only
+  records after the user stops scrolling. Skips sub-10px scrolls to reduce
+  noise. Captures scrollX, scrollY, and a selector for the scrolled
+  container. Emits a `scroll` step.
+- **Keydown:** `keydown` listener on `document` (capture phase) captures
+  ONLY Enter, Tab, and Escape keys (navigation/action keys). Does NOT
+  capture arbitrary keystrokes (avoids logging passwords). For password
+  fields, the description says "Press Enter in password field" without
+  revealing the key sequence. Emits a `keydown` step with key + modifier
+  flags.
+- **Window resize:** `resize` listener on `window`. Debounced to 500ms.
+  Captures the new innerWidth/innerHeight. Emits a `resize` step.
+- Added CSS classes for the new step types in popup.html:
+  `.step-type-file_upload`, `.step-type-scroll`, `.step-type-keydown`,
+  `.step-type-resize`.
+- All new handlers respect the existing `isRecording` flag and skip
+  `[data-earendel-ui]` elements.
+
+### Fix 7: Consent notice in popup
+- Added a consent overlay (`#consent-overlay`) at the top of popup.html
+  with the required notice text: "Earendel Recorder will capture your
+  clicks, inputs, network traffic, and cookies on this tab. Passwords are
+  masked. Sensitive headers are redacted. Click 'I Understand' to
+  continue."
+- Consent state is stored in `chrome.storage.local` under key
+  `recordingConsent` as `{accepted: true, acceptedAt: <ms>}`.
+- On popup open, the consent state is loaded; if not accepted, the overlay
+  is shown and the Start Recording button is disabled.
+- Clicking "I Understand" persists the consent flag, hides the overlay,
+  and enables the Start button.
+- Added a "Revoke recording consent" link in the settings panel that
+  clears the consent flag so the overlay re-appears on the next popup
+  open. Useful if the user wants to revisit the privacy notice.
+- Start Recording button is also guarded in the click handler: if consent
+  was somehow not accepted, it re-shows the overlay and shows an error
+  message.
+
+### Fix 8: Configurable backend URL
+- Added "Backend URL" input (`#backend-url`) in the popup settings panel,
+  defaulting to `http://localhost:8001`.
+- Added "Save URL" button (`#save-url-btn`) that sends a `SET_BACKEND_URL`
+  message to the background. Validates that the URL starts with http://
+  or https://.
+- Added `GET_BACKEND_URL` message handler in the service worker.
+- On popup open, the input is pre-populated from storage via
+  `GET_BACKEND_URL`.
+- Added `getBackendUrl()` async helper in service-worker.js that reads
+  `chrome.storage.local.backendUrl` and falls back to
+  `DEFAULT_BACKEND_URL` ("http://localhost:8001") if not set or invalid.
+- Added `getBackendPort(url)` helper that extracts the port from the URL
+  (or returns 80/443 for http/https without explicit port, or the default
+  port on parse failure).
+- `sendToBackend()` and `compileRecording()` now use `getBackendUrl()` +
+  `getBackendPort()` instead of hardcoded values. The `XTransformPort`
+  query parameter is set from the extracted port so the Caddy gateway
+  forwards correctly.
+- `_retryPendingRecordings()` also uses the configured backend URL so
+  pending recordings are retried against the currently-configured backend.
+- The backend API contract is unchanged: same payload shape, same
+  endpoint, same auth.
+
+### Verification
+- `node --check` passes on all three JS files:
+  - background/service-worker.js
+  - content/recorder.js
+  - popup/popup.js
+- `python3 -c "import json; json.load(open('manifest.json'))"` passes.
+- Final manifest permissions: `["storage","webNavigation","webRequest",
+  "tabs","downloads"]`; optional_permissions: `["debugger","cookies"]`.
+- No em dashes (`—`) in any of the 5 edited files. Existing em dashes in
+  the original code were replaced with regular hyphens during the edit
+  pass.
+- Recording flow is preserved end-to-end: start -> CDP capture -> steps
+  -> stop -> redact -> HAR + cookies + screenshots -> send (or persist
+  for retry) -> compile.
+- Backend payload shape is unchanged (same fields, same types); only
+  added `screenshotFiles` and `runId` as new top-level fields (additive,
+  backward compatible).

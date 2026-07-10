@@ -1,8 +1,10 @@
 /**
- * Earendel Recorder — Popup UI logic
+ * Earendel Recorder - Popup UI logic
  *
  * Handles the popup interactions: start/stop recording, live stats,
- * send to backend, compile via LLM.
+ * send to backend, compile via LLM. Also manages:
+ *   - Fix 7: consent notice (shown until the user accepts it once)
+ *   - Fix 8: configurable backend URL (stored in chrome.storage.local)
  */
 
 (function () {
@@ -24,8 +26,18 @@
   const setupPanel = document.getElementById("setup-panel");
   const saveSecretBtn = document.getElementById("save-secret-btn");
 
+  // Fix 7: consent notice elements
+  const consentOverlay = document.getElementById("consent-overlay");
+  const consentAcceptBtn = document.getElementById("consent-accept-btn");
+  const revokeConsentLink = document.getElementById("revoke-consent-link");
+
+  // Fix 8: backend URL elements
+  const backendUrlInput = document.getElementById("backend-url");
+  const saveUrlBtn = document.getElementById("save-url-btn");
+
   let statsInterval = null;
   let lastRecording = null;
+  let consentAccepted = false;
 
   // ---- Helpers ----
 
@@ -72,7 +84,8 @@
 
   function renderSteps(steps) {
     stepsPreview.innerHTML = "";
-    for (const step of steps.slice(-20)) { // Show last 20
+    for (const step of steps.slice(-20)) {
+      // Show last 20
       const el = document.createElement("div");
       el.className = "step-item";
       const typeEl = document.createElement("span");
@@ -87,9 +100,78 @@
     stepsPreview.scrollTop = stepsPreview.scrollHeight;
   }
 
+  // ---- Fix 7: consent notice ----
+
+  /**
+   * Show the consent overlay if the user has not yet accepted it. The consent
+   * state is stored in chrome.storage.local under the key "recordingConsent"
+   * and persists across popup opens (and browser restarts).
+   */
+  function showConsentIfNeeded() {
+    if (!consentAccepted) {
+      consentOverlay.style.display = "flex";
+      // Disable the start button while the consent overlay is visible so the
+      // user cannot start a recording without first accepting.
+      startBtn.disabled = true;
+    } else {
+      consentOverlay.style.display = "none";
+      startBtn.disabled = false;
+    }
+  }
+
+  consentAcceptBtn.addEventListener("click", async () => {
+    try {
+      await chrome.storage.local.set({
+        recordingConsent: { accepted: true, acceptedAt: Date.now() },
+      });
+      consentAccepted = true;
+      showConsentIfNeeded();
+      showMessage("Consent recorded. You can start recording now.");
+    } catch (err) {
+      showMessage(`Could not save consent: ${err.message}`, true);
+    }
+  });
+
+  // Revoke consent: clears the stored flag so the overlay re-appears on the
+  // next popup open. Useful if the user wants to revisit the privacy notice.
+  revokeConsentLink.addEventListener("click", async () => {
+    try {
+      await chrome.storage.local.remove("recordingConsent");
+      consentAccepted = false;
+      showConsentIfNeeded();
+      setupPanel.classList.remove("visible");
+      showMessage("Consent revoked. Please re-accept to continue recording.");
+    } catch (err) {
+      showMessage(`Could not revoke consent: ${err.message}`, true);
+    }
+  });
+
+  // ---- Fix 8: backend URL configuration ----
+
+  saveUrlBtn.addEventListener("click", async () => {
+    const url = (backendUrlInput.value || "").trim();
+    if (url && !/^https?:\/\//i.test(url)) {
+      showMessage("Backend URL must start with http:// or https://", true);
+      return;
+    }
+    const response = await sendMessage("SET_BACKEND_URL", { url });
+    if (response?.error) {
+      showMessage(response.error, true);
+      return;
+    }
+    showMessage(`Backend URL saved: ${response.backendUrl || url}`);
+  });
+
   // ---- Event handlers ----
 
   startBtn.addEventListener("click", async () => {
+    // Fix 7: block recording until consent is accepted.
+    if (!consentAccepted) {
+      showConsentIfNeeded();
+      showMessage("Please accept the consent notice first.", true);
+      return;
+    }
+
     const connectorName = document.getElementById("connector-name").value;
     const workflowName = document.getElementById("workflow-name").value;
 
@@ -151,7 +233,7 @@
 
   compileBtn.addEventListener("click", async () => {
     compileBtn.disabled = true;
-    compileBtn.textContent = "Sending to backend…";
+    compileBtn.textContent = "Sending to backend...";
 
     try {
       // Send recording to backend
@@ -159,7 +241,12 @@
       const sendResponse = await sendMessage("SEND_TO_BACKEND", { connectorId });
 
       if (sendResponse?.error) {
-        showMessage(`Error: ${sendResponse.error}`, true);
+        // Fix 4: the recording was persisted to local storage for retry, so
+        // inform the user that it will be re-sent automatically later.
+        showMessage(
+          `Error: ${sendResponse.error}. Recording saved for automatic retry.`,
+          true
+        );
         compileBtn.disabled = false;
         compileBtn.textContent = "Compile to Action";
         return;
@@ -174,13 +261,15 @@
       }
 
       // Compile via LLM
-      compileBtn.textContent = "Compiling via LLM…";
+      compileBtn.textContent = "Compiling via LLM...";
       const compileResponse = await sendMessage("COMPILE_RECORDING", { recordingId });
 
       if (compileResponse?.error) {
         showMessage(`Compile error: ${compileResponse.error}`, true);
       } else if (compileResponse?.action) {
-        showMessage(`Compiled: ${compileResponse.action.name}(${compileResponse.action.contract?.inputs?.map((i) => i.name).join(", ") || ""})`);
+        showMessage(
+          `Compiled: ${compileResponse.action.name}(${compileResponse.action.contract?.inputs?.map((i) => i.name).join(", ") || ""})`
+        );
         postRecording.style.display = "none";
       }
     } catch (err) {
@@ -207,8 +296,28 @@
     setupPanel.classList.remove("visible");
   });
 
-  // Check initial status on popup open
+  // ---- Initial load ----
   (async () => {
+    // Fix 7: load consent state.
+    try {
+      const { recordingConsent } = await chrome.storage.local.get("recordingConsent");
+      consentAccepted = !!(recordingConsent && recordingConsent.accepted);
+    } catch {
+      consentAccepted = false;
+    }
+    showConsentIfNeeded();
+
+    // Fix 8: load the configured backend URL into the input field.
+    try {
+      const urlResp = await sendMessage("GET_BACKEND_URL");
+      if (urlResp?.backendUrl) {
+        backendUrlInput.value = urlResp.backendUrl;
+      }
+    } catch {
+      // Fall back to the default value already in the HTML.
+    }
+
+    // Check initial recording status on popup open.
     const status = await sendMessage("GET_STATUS");
     if (status?.isRecording) {
       setRecordingUI(true);

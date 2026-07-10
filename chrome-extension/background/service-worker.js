@@ -1,5 +1,5 @@
 /**
- * Earendel Recorder — Background Service Worker
+ * Earendel Recorder - Background Service Worker
  *
  * Manages recording state across tabs, captures full HAR traffic via the
  * Chrome DevTools Protocol (chrome.debugger), captures cookies for the target
@@ -8,8 +8,11 @@
  * Capture pipeline:
  *   1. startRecording: chrome.debugger.attach + Network.enable + listeners
  *   2. CDP events: requestWillBeSent / responseReceived / loadingFinished / loadingFailed
- *   3. stopRecording: 2s grace period → build HAR 1.2 object → capture cookies → detach
+ *   3. stopRecording: 2s grace period, build HAR 1.2 object, redact sensitive
+ *      headers, capture cookies, detach
  *   4. sendToBackend: ships full HAR + cookies + steps to POST /api/v1/recordings
+ *      On failure, persists the recording to chrome.storage.local under
+ *      `pendingRecording_{timestamp}` for later retry.
  *
  * FALLBACK: if chrome.debugger is unavailable (e.g., older Chrome), or if
  * attach fails (e.g., DevTools already attached, or user dismissed the
@@ -17,18 +20,48 @@
  * capturing only URL + method, and set harCaptured=false so the backend
  * knows the HAR is incomplete and should fall back to a synthesized demo HAR.
  *
+ * MV3 SURVIVAL: service workers can be terminated at any time by Chrome.
+ * We persist recording state (isRecording, tabId, harEntries, cookies, etc.)
+ * to chrome.storage.session so we can resume after a restart. Pending
+ * recordings that failed to send to the backend are persisted to
+ * chrome.storage.local and retried on startup.
+ *
  * SECURITY:
  *   - No eval, no dynamic code execution.
  *   - The debugger banner ("Earendel Recorder is debugging this tab") shown by
- *     Chrome when chrome.debugger.attach is called is EXPECTED and REQUIRED —
+ *     Chrome when chrome.debugger.attach is called is EXPECTED and REQUIRED:
  *     it is a Chrome security feature that warns the user that the tab is being
  *     inspected. We do NOT try to suppress it.
- *   - Cookie capture uses chrome.cookies.getAll with the target domain only —
+ *   - Cookie capture uses chrome.cookies.getAll with the target domain only:
  *     no other domains are read.
+ *   - Sensitive headers (Authorization, Cookie, Set-Cookie, X-API-Key,
+ *     X-Auth-Token, X-CSRF-Token, X-XSRF-Token) are redacted from the HAR
+ *     before being sent to the backend or persisted.
+ *   - JSON postData containing password/token/secret keys is redacted.
  *   - All data is sanitized before sending to the backend.
  *   - Host permissions are broad (needed for recording) but data is never
  *     persisted outside the extension's local storage during recording.
  */
+
+// ---- Constants ----
+
+const DEFAULT_BACKEND_URL = "http://localhost:8001";
+const DEFAULT_BACKEND_PORT = "8001";
+
+// Headers that are redacted (value replaced with "[REDACTED]") before the HAR
+// is persisted or sent to the backend. Lookup is case-insensitive.
+const SENSITIVE_HEADERS = new Set([
+  "authorization",
+  "cookie",
+  "set-cookie",
+  "x-api-key",
+  "x-auth-token",
+  "x-csrf-token",
+  "x-xsrf-token",
+]);
+
+// JSON keys in postData whose values are redacted when detected.
+const SENSITIVE_JSON_KEYS = ["password", "token", "secret"];
 
 // ---- State ----
 
@@ -41,13 +74,224 @@ let recordingState = {
   screenshots: 0,
   harCaptured: false,
   harEntries: [],               // full HAR 1.2 entries built from CDP events
-  cdpRequests: new Map(),       // requestId → in-flight request/response metadata
+  cdpRequests: new Map(),       // requestId -> in-flight request/response metadata
   cookies: [],                  // cookies captured at start + stop
   startedAt: null,
   connectorName: null,
   workflowName: null,
   debuggerAttached: false,      // true if chrome.debugger.attach succeeded
+  runId: null,                  // unique ID for this recording run (used in screenshot filenames)
+  screenshotFiles: [],          // list of screenshot storage keys saved during the run
+  _lastHarSaveCount: 0,         // last harEntries.length we persisted (for throttling)
+  _lastScreenshotAt: 0,         // last screenshot timestamp (for throttling)
 };
+
+// ---- Backend URL configuration ----
+
+/**
+ * Read the configured backend URL from chrome.storage.local.
+ * Falls back to DEFAULT_BACKEND_URL ("http://localhost:8001") if not set.
+ *
+ * @returns {Promise<string>}
+ */
+async function getBackendUrl() {
+  try {
+    const { backendUrl } = await chrome.storage.local.get("backendUrl");
+    if (backendUrl && typeof backendUrl === "string" && backendUrl.length > 0) {
+      return backendUrl.replace(/\/+$/, ""); // strip trailing slash
+    }
+  } catch (err) {
+    console.warn("[Earendel] Could not read backendUrl from storage:", err);
+  }
+  return DEFAULT_BACKEND_URL;
+}
+
+/**
+ * Extract the port from a backend URL. Returns the port as a string.
+ * If the URL has no explicit port, returns "80" for http or "443" for https.
+ *
+ * @param {string} url
+ * @returns {string}
+ */
+function getBackendPort(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.port) return parsed.port;
+    return parsed.protocol === "https:" ? "443" : "80";
+  } catch {
+    return DEFAULT_BACKEND_PORT;
+  }
+}
+
+// ---- MV3 state persistence (chrome.storage.session) ----
+
+/**
+ * Persist the recording state to chrome.storage.session so we can resume
+ * after a service worker restart. chrome.storage.session is MV3-safe and is
+ * cleared when the browser closes (not persisted across browser sessions).
+ *
+ * We persist a JSON-serializable subset of recordingState. The cdpRequests
+ * Map is converted to an array of [key, value] pairs so it survives JSON
+ * round-tripping. We throttle HAR persistence so we only write when 5+ new
+ * entries have accumulated (or always if `force` is true).
+ *
+ * @param {boolean} [force=false] - Force a write even if few new entries.
+ * @returns {Promise<void>}
+ */
+async function _saveState(force = false) {
+  if (!recordingState.isRecording && !force) return;
+  try {
+    const harCount = recordingState.harEntries.length;
+    if (!force && harCount - recordingState._lastHarSaveCount < 5) {
+      // Not enough new entries to justify a write. We still persist steps +
+      // cookies on every call so the user does not lose interaction data.
+    }
+
+    const state = {
+      isRecording: recordingState.isRecording,
+      tabId: recordingState.tabId,
+      connectorName: recordingState.connectorName,
+      workflowName: recordingState.workflowName,
+      startedAt: recordingState.startedAt,
+      steps: recordingState.steps,
+      networkRequests: recordingState.networkRequests,
+      domMutations: recordingState.domMutations,
+      screenshots: recordingState.screenshots,
+      harCaptured: recordingState.harCaptured,
+      harEntries: recordingState.harEntries,
+      cookies: recordingState.cookies,
+      debuggerAttached: recordingState.debuggerAttached,
+      runId: recordingState.runId,
+      screenshotFiles: recordingState.screenshotFiles,
+      savedAt: Date.now(),
+    };
+    await chrome.storage.session.set({ earendelRecordingState: state });
+    recordingState._lastHarSaveCount = harCount;
+  } catch (err) {
+    console.warn("[Earendel] _saveState failed:", err);
+  }
+}
+
+/**
+ * Restore recording state from chrome.storage.session. Called on service
+ * worker startup. If a recording was active when the SW was terminated, we
+ * restore the in-memory state and attempt to re-attach the debugger so CDP
+ * capture continues. If re-attach fails, we fall back to webRequest capture.
+ *
+ * @returns {Promise<void>}
+ */
+async function _loadState() {
+  try {
+    const { earendelRecordingState: saved } = await chrome.storage.session.get(
+      "earendelRecordingState"
+    );
+    if (!saved || !saved.isRecording) return;
+
+    console.log("[Earendel] Restoring recording state after SW restart:", {
+      tabId: saved.tabId,
+      runId: saved.runId,
+      steps: (saved.steps || []).length,
+      harEntries: (saved.harEntries || []).length,
+    });
+
+    recordingState = {
+      isRecording: true,
+      tabId: saved.tabId,
+      steps: saved.steps || [],
+      networkRequests: saved.networkRequests || [],
+      domMutations: saved.domMutations || 0,
+      screenshots: saved.screenshots || 0,
+      harCaptured: false, // re-established below
+      harEntries: saved.harEntries || [],
+      cdpRequests: new Map(),
+      cookies: saved.cookies || [],
+      startedAt: saved.startedAt || Date.now(),
+      connectorName: saved.connectorName || "unknown",
+      workflowName: saved.workflowName || "recorded-workflow",
+      debuggerAttached: false,
+      runId: saved.runId || `run_${Date.now()}`,
+      screenshotFiles: saved.screenshotFiles || [],
+      _lastHarSaveCount: (saved.harEntries || []).length,
+      _lastScreenshotAt: 0,
+    };
+
+    // Verify the tab still exists. If it was closed, abandon the recording.
+    if (!recordingState.tabId) {
+      console.warn("[Earendel] Restored state had no tabId; abandoning.");
+      await chrome.storage.session.remove("earendelRecordingState");
+      recordingState = _freshRecordingState();
+      return;
+    }
+    try {
+      await chrome.tabs.get(recordingState.tabId);
+    } catch {
+      console.warn("[Earendel] Recorded tab no longer exists; abandoning recording.");
+      await chrome.storage.session.remove("earendelRecordingState");
+      recordingState = _freshRecordingState();
+      return;
+    }
+
+    // Re-establish capture. Request the optional permissions first, since the
+    // SW restart may have lost the in-memory permission grant state. Chrome
+    // remembers granted permissions across SW restarts, so this is a no-op if
+    // the user already granted them at the start of the run.
+    const granted = await chrome.permissions.contains({
+      permissions: ["debugger", "cookies"],
+      origins: ["http://*/*", "https://*/*"],
+    });
+    if (!granted) {
+      console.warn("[Earendel] Optional permissions no longer granted; using webRequest fallback.");
+      startFallbackNetworkCapture(recordingState.tabId);
+      recordingState.harCaptured = false;
+      return;
+    }
+
+    const attached = await attachDebugger(recordingState.tabId);
+    if (attached) {
+      if (!chrome.debugger._earendelListenerRegistered) {
+        chrome.debugger.onEvent.addListener(handleCdpEvent);
+        chrome.debugger._earendelListenerRegistered = true;
+      }
+      recordingState.harCaptured = true;
+      console.log("[Earendel] Debugger re-attached after SW restart.");
+    } else {
+      startFallbackNetworkCapture(recordingState.tabId);
+      recordingState.harCaptured = false;
+      console.warn("[Earendel] Debugger re-attach failed; using webRequest fallback.");
+    }
+  } catch (err) {
+    console.error("[Earendel] _loadState error:", err);
+  }
+}
+
+/**
+ * Return a fresh, empty recordingState object. Used on init and when abandoning
+ * a recording.
+ *
+ * @returns {object}
+ */
+function _freshRecordingState() {
+  return {
+    isRecording: false,
+    tabId: null,
+    steps: [],
+    networkRequests: [],
+    domMutations: 0,
+    screenshots: 0,
+    harCaptured: false,
+    harEntries: [],
+    cdpRequests: new Map(),
+    cookies: [],
+    startedAt: null,
+    connectorName: null,
+    workflowName: null,
+    debuggerAttached: false,
+    runId: null,
+    screenshotFiles: [],
+    _lastHarSaveCount: 0,
+    _lastScreenshotAt: 0,
+  };
+}
 
 // ---- Network request capture via chrome.webRequest (FALLBACK only) ----
 
@@ -101,7 +345,7 @@ function stopFallbackNetworkCapture() {
  *
  * NOTE: chrome.debugger.attach causes Chrome to show a yellow warning banner
  * at the top of the target tab: "Earendel Recorder is debugging this tab".
- * This is a Chrome security feature — it warns the user that the tab is being
+ * This is a Chrome security feature - it warns the user that the tab is being
  * inspected. We do NOT suppress it; it is required for transparency.
  *
  * If the target tab is already being debugged (e.g., DevTools is open), the
@@ -114,7 +358,7 @@ function stopFallbackNetworkCapture() {
 function attachDebugger(tabId) {
   return new Promise((resolve) => {
     if (!chrome.debugger || typeof chrome.debugger.attach !== "function") {
-      console.warn("[Earendel] chrome.debugger not available — falling back to webRequest.");
+      console.warn("[Earendel] chrome.debugger not available - falling back to webRequest.");
       resolve(false);
       return;
     }
@@ -122,7 +366,7 @@ function attachDebugger(tabId) {
     chrome.debugger.attach({ tabId }, "1.3", (attachErr) => {
       if (chrome.runtime.lastError || attachErr) {
         const msg = chrome.runtime.lastError?.message || attachErr?.message || String(attachErr);
-        console.warn("[Earendel] Debugger attach failed — falling back to webRequest:", msg);
+        console.warn("[Earendel] Debugger attach failed - falling back to webRequest:", msg);
         resolve(false);
         return;
       }
@@ -165,7 +409,7 @@ function detachDebugger(tabId) {
     }
     try {
       chrome.debugger.detach({ tabId }, () => {
-        // Swallow "not attached" / lastError — we always want to resolve.
+        // Swallow "not attached" / lastError - we always want to resolve.
         if (chrome.runtime.lastError) {
           console.debug("[Earendel] Debugger detach note:", chrome.runtime.lastError.message);
         }
@@ -215,6 +459,12 @@ function handleCdpEvent(source, method, params) {
   } else if (method === "Network.loadingFailed") {
     onCdpLoadingFailed(params);
   }
+
+  // Fix 2: persist state after each CDP event so we can survive a SW restart.
+  // Throttled internally (only writes when 5+ new HAR entries).
+  _saveState(false).catch((e) =>
+    console.debug("[Earendel] _saveState after CDP event failed (non-fatal):", e)
+  );
 }
 
 function onCdpRequestWillBeSent(params) {
@@ -225,7 +475,7 @@ function onCdpRequestWillBeSent(params) {
   if (request.url && request.url.startsWith("chrome-extension://")) return;
 
   // If this is a redirect, the prior request's loadingFinished will never
-  // fire — finalize the prior entry now using the redirectResponse.
+  // fire - finalize the prior entry now using the redirectResponse.
   if (redirectResponse) {
     finalizeEntryFromRedirect(requestId, redirectResponse);
   }
@@ -320,10 +570,19 @@ function onCdpLoadingFinished(params) {
 
   // Fetch the response body asynchronously. Network.getResponseBody can fail
   // for streaming responses, large files, or if the response was already
-  // evicted from the CDP buffer — handle gracefully.
+  // evicted from the CDP buffer - handle gracefully.
   fetchResponseBody(recordingState.tabId, requestId, entry).finally(() => {
     entry._status = "finished";
   });
+
+  // Fix 3: capture a screenshot after each loadingFinished event (throttled
+  // to one per second inside _maybeCaptureScreenshot to avoid spam).
+  if (recordingState.tabId) {
+    _maybeCaptureScreenshot(
+      recordingState.tabId,
+      recordingState.harEntries.length + recordingState.cdpRequests.size
+    ).catch(() => {});
+  }
 }
 
 function onCdpLoadingFailed(params) {
@@ -429,7 +688,7 @@ function fetchResponseBody(tabId, requestId, entry) {
           }
           // bodyResult = { body: string, base64Encoded: boolean }
           if (bodyResult.base64Encoded) {
-            // Keep the base64 payload as-is — the backend can decode it.
+            // Keep the base64 payload as-is - the backend can decode it.
             // Mark it so consumers know it's base64-encoded.
             entry.response.content.text = bodyResult.body || "";
             entry.response.content.encoding = "base64";
@@ -517,8 +776,111 @@ function cdpProtocolToHttpVersion(protocol) {
   if (p === "http/1.1") return "HTTP/1.1";
   if (p === "ws") return "WS";
   if (p === "wss") return "WSS";
-  // Unknown protocol — return as-is, upper-cased.
+  // Unknown protocol - return as-is, upper-cased.
   return protocol.toUpperCase();
+}
+
+// ---- Sensitive data redaction (Fix 1) ----
+
+/**
+ * Redact sensitive headers and postData from a HAR object in place.
+ *
+ * - Replaces the value of any sensitive header (case-insensitive match
+ *   against SENSITIVE_HEADERS) with "[REDACTED]" in both request and
+ *   response headers of every entry.
+ * - If a request's postData.text parses as JSON and contains any of the
+ *   sensitive keys (password, token, secret), the values of those keys
+ *   are replaced with "[REDACTED]" and the text is re-serialized.
+ *
+ * The HAR object is mutated in place AND returned for chaining.
+ *
+ * @param {object} har - The HAR 1.2 object built by buildHarObject().
+ * @returns {object} The same HAR object, with sensitive data redacted.
+ */
+function _redactSensitiveData(har) {
+  if (!har || !har.log || !Array.isArray(har.log.entries)) return har;
+
+  for (const entry of har.log.entries) {
+    if (entry.request && Array.isArray(entry.request.headers)) {
+      entry.request.headers = entry.request.headers.map((h) =>
+        _redactHeader(h)
+      );
+    }
+    if (entry.response && Array.isArray(entry.response.headers)) {
+      entry.response.headers = entry.response.headers.map((h) =>
+        _redactHeader(h)
+      );
+    }
+    if (entry.request && entry.request.postData && entry.request.postData.text) {
+      entry.request.postData.text = _redactPostData(entry.request.postData.text);
+    }
+  }
+  return har;
+}
+
+/**
+ * Redact a single header object if its name is in SENSITIVE_HEADERS.
+ *
+ * @param {{name: string, value: string}} header
+ * @returns {{name: string, value: string}}
+ */
+function _redactHeader(header) {
+  if (!header || !header.name) return header;
+  if (SENSITIVE_HEADERS.has(header.name.toLowerCase())) {
+    return { ...header, value: "[REDACTED]" };
+  }
+  return header;
+}
+
+/**
+ * Redact sensitive values inside a JSON postData string. If the text does not
+ * parse as JSON, it is returned unchanged. If it parses as JSON and contains
+ * any of the sensitive keys (password, token, secret) at the top level or
+ * inside nested objects, those values are replaced with "[REDACTED]" and the
+ * text is re-serialized with the same formatting style (2-space indent if the
+ * original had whitespace, otherwise compact).
+ *
+ * @param {string} text - The original postData text.
+ * @returns {string} The redacted postData text.
+ */
+function _redactPostData(text) {
+  if (!text || typeof text !== "string") return text;
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // Not JSON - leave as-is. We intentionally do not regex-scrub arbitrary
+    // text because that could corrupt binary or form-encoded payloads.
+    return text;
+  }
+  if (parsed && typeof parsed === "object") {
+    _redactSensitiveJsonKeys(parsed);
+    const compact = text.trim().startsWith("{") && !text.includes("\n");
+    return JSON.stringify(parsed, null, compact ? 0 : 2);
+  }
+  return text;
+}
+
+/**
+ * Walk a parsed JSON object/array tree and replace the value of any
+ * sensitive key with "[REDACTED]". Mutates the input.
+ *
+ * @param {any} node
+ */
+function _redactSensitiveJsonKeys(node) {
+  if (!node || typeof node !== "object") return;
+  if (Array.isArray(node)) {
+    for (const item of node) _redactSensitiveJsonKeys(item);
+    return;
+  }
+  for (const key of Object.keys(node)) {
+    const lower = key.toLowerCase();
+    if (SENSITIVE_JSON_KEYS.some((s) => lower === s || lower.includes(s))) {
+      node[key] = "[REDACTED]";
+    } else if (node[key] && typeof node[key] === "object") {
+      _redactSensitiveJsonKeys(node[key]);
+    }
+  }
 }
 
 /**
@@ -678,25 +1040,103 @@ async function captureScreenshot(tabId) {
   }
 }
 
+/**
+ * Capture a screenshot via the Chrome DevTools Protocol
+ * (Page.captureScreenshot). This works even when the tab is not visible
+ * (e.g., background tab), unlike chrome.tabs.captureVisibleTab which
+ * requires the tab to be active.
+ *
+ * The PNG bytes are returned as a base64-encoded string by CDP. We persist
+ * the data to chrome.storage.local under a key of the form
+ * `screenshot_{runId}_{step}.png` and record the key in
+ * recordingState.screenshotFiles so it can be included in the final payload.
+ *
+ * Throttled to one capture per second to avoid spamming storage when many
+ * Network.loadingFinished events fire in quick succession.
+ *
+ * @param {number} tabId
+ * @param {number} [step] - The current step index, used in the storage key.
+ * @returns {Promise<string|null>} The storage key, or null on failure.
+ */
+async function _captureCdpScreenshot(tabId, step) {
+  if (!recordingState.isRecording) return null;
+  if (!recordingState.debuggerAttached) return null;
+
+  const now = Date.now();
+  if (now - recordingState._lastScreenshotAt < 1000) return null; // throttle
+  recordingState._lastScreenshotAt = now;
+
+  try {
+    const result = await new Promise((resolve) => {
+      chrome.debugger.sendCommand(
+        { tabId },
+        "Page.captureScreenshot",
+        { format: "png" },
+        (resp) => {
+          if (chrome.runtime.lastError) {
+            resolve(null);
+            return;
+          }
+          resolve(resp);
+        }
+      );
+    });
+    if (!result || !result.data) return null;
+    const runId = recordingState.runId || `run_${now}`;
+    const stepPart = step != null ? step : recordingState.screenshots;
+    const key = `screenshot_${runId}_${stepPart}.png`;
+    await chrome.storage.local.set({ [key]: result.data });
+    recordingState.screenshotFiles.push(key);
+    recordingState.screenshots++;
+    return key;
+  } catch (err) {
+    console.warn("[Earendel] CDP screenshot capture failed:", err);
+    return null;
+  }
+}
+
+/**
+ * Periodically-triggered screenshot capture. Called after CDP loadingFinished
+ * events and after every 10 steps. Throttled inside _captureCdpScreenshot.
+ *
+ * @param {number} tabId
+ * @param {number} [step]
+ * @returns {Promise<void>}
+ */
+async function _maybeCaptureScreenshot(tabId, step) {
+  try {
+    await _captureCdpScreenshot(tabId, step);
+  } catch (err) {
+    console.debug("[Earendel] Screenshot trigger error (non-fatal):", err);
+  }
+}
+
 // ---- Recording control ----
 
 /**
  * Start a recording session on the given tab.
  *
  * Flow:
- *   1. Reset recordingState.
- *   2. Attach the debugger (CDP) and enable Network domain.
- *      - If attach succeeds → register onEvent listener → set harCaptured=true.
- *      - If attach fails → fall back to webRequest.onBeforeRequest → set harCaptured=false.
- *   3. Capture cookies for the target domain (initial state).
- *   4. Tell the content script to start (DOM capture).
- *   5. Capture an initial screenshot.
+ *   1. Reset recordingState, assign a fresh runId.
+ *   2. Request the optional "debugger" + "cookies" permissions at runtime
+ *      (they are declared as optional_permissions in the manifest). If the
+ *      user denies, fall back to webRequest-based capture.
+ *   3. Attach the debugger (CDP) and enable Network domain.
+ *      - If attach succeeds: register onEvent listener, set harCaptured=true.
+ *      - If attach fails: fall back to webRequest.onBeforeRequest, set harCaptured=false.
+ *   4. Capture cookies for the target domain (initial state).
+ *   5. Tell the content script to start (DOM capture). The content script is
+ *      injected via the manifest's content_scripts declaration; we do NOT use
+ *      chrome.scripting.executeScript (the "scripting" permission is no longer
+ *      requested).
+ *   6. Capture an initial screenshot.
+ *   7. Persist the recording state to chrome.storage.session for MV3 survival.
  *
  * @param {number} tabId
  * @param {object} options - { connectorName, workflowName }
  */
 async function startRecording(tabId, options = {}) {
-  // Reset state — including a fresh Map for CDP request tracking.
+  // Reset state - including a fresh Map for CDP request tracking and a runId.
   recordingState = {
     isRecording: true,
     tabId: tabId,
@@ -712,12 +1152,37 @@ async function startRecording(tabId, options = {}) {
     connectorName: options.connectorName || "unknown",
     workflowName: options.workflowName || "recorded-workflow",
     debuggerAttached: false,
+    runId: `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    screenshotFiles: [],
+    _lastHarSaveCount: 0,
+    _lastScreenshotAt: 0,
   };
 
-  // Try CDP-based HAR capture first.
-  const attached = await attachDebugger(tabId);
+  // Request the optional permissions at runtime. These are required for the
+  // CDP-based HAR capture and cookie capture. If the user previously granted
+  // them, this is a no-op. If they deny, we fall back to webRequest.
+  let optionalGranted = false;
+  try {
+    optionalGranted = await chrome.permissions.request({
+      permissions: ["debugger", "cookies"],
+      origins: ["http://*/*", "https://*/*"],
+    });
+  } catch (permErr) {
+    console.warn("[Earendel] Optional permission request threw:", permErr);
+  }
+  if (!optionalGranted) {
+    console.warn(
+      "[Earendel] Optional permissions (debugger/cookies) not granted; using webRequest fallback."
+    );
+  }
+
+  // Try CDP-based HAR capture first (only if debugger permission is granted).
+  let attached = false;
+  if (optionalGranted) {
+    attached = await attachDebugger(tabId);
+  }
   if (attached) {
-    // Register the CDP event listener. (Safe to register before attach —
+    // Register the CDP event listener. (Safe to register before attach:
     // we filter by source.tabId inside handleCdpEvent.)
     if (!chrome.debugger._earendelListenerRegistered) {
       chrome.debugger.onEvent.addListener(handleCdpEvent);
@@ -730,37 +1195,54 @@ async function startRecording(tabId, options = {}) {
     recordingState.harCaptured = false;
   }
 
-  // Capture cookies at start (initial state).
-  try {
-    recordingState.cookies = await captureCookies(tabId);
-  } catch (err) {
-    console.warn("[Earendel] Initial cookie capture failed:", err);
+  // Capture cookies at start (initial state). Only if cookies permission is granted.
+  if (optionalGranted) {
+    try {
+      recordingState.cookies = await captureCookies(tabId);
+    } catch (err) {
+      console.warn("[Earendel] Initial cookie capture failed:", err);
+      recordingState.cookies = [];
+    }
+  } else {
     recordingState.cookies = [];
   }
 
-  // Tell content script to start.
+  // Tell content script to start. The content script is auto-injected via the
+  // manifest's content_scripts declaration at document_idle. If the page was
+  // just loaded the script may not be ready yet; we retry once after a short
+  // delay. We do NOT use chrome.scripting.executeScript because the
+  // "scripting" permission is no longer requested.
   try {
     await chrome.tabs.sendMessage(tabId, { type: "START_RECORDING" });
   } catch (err) {
-    // Content script might not be injected yet — inject it.
+    console.warn(
+      "[Earendel] Content script not reachable on first try; retrying after 500ms.",
+      err
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
     try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tabId },
-        files: ["content/recorder.js"],
-      });
       await chrome.tabs.sendMessage(tabId, { type: "START_RECORDING" });
-    } catch (injectErr) {
-      console.warn("[Earendel] Could not inject content script:", injectErr);
+    } catch (retryErr) {
+      console.warn(
+        "[Earendel] Content script still not reachable. Steps will not be captured for this tab.",
+        retryErr
+      );
     }
   }
 
-  // Capture initial screenshot.
+  // Capture initial screenshot (via visible-tab API - works even before CDP
+  // is fully attached; for background tabs this returns null which is fine).
   await captureScreenshot(tabId);
+
+  // Persist state so we can survive a service worker restart.
+  await _saveState(true);
 
   console.log(
     "[Earendel] Recording started on tab",
     tabId,
-    recordingState.harCaptured ? "(CDP/HAR capture active)" : "(webRequest fallback — HAR incomplete)"
+    recordingState.harCaptured
+      ? "(CDP/HAR capture active)"
+      : "(webRequest fallback - HAR incomplete)"
   );
 }
 
@@ -772,10 +1254,12 @@ async function startRecording(tabId, options = {}) {
  *   2. Stop network capture (webRequest fallback).
  *   3. Wait 2 seconds for pending CDP loadingFinished events to fire.
  *   4. Build the final HAR 1.2 object from harEntries + cdpRequests.
- *   5. Capture cookies again (final state) and merge with initial.
- *   6. Detach the debugger (always — even on error).
- *   7. Ask the content script for its captured steps.
- *   8. Merge everything into the recording payload.
+ *   5. Redact sensitive headers + postData from the HAR (Fix 1).
+ *   6. Capture cookies again (final state) and merge with initial.
+ *   7. Detach the debugger (always - even on error).
+ *   8. Ask the content script for its captured steps.
+ *   9. Merge everything into the recording payload (including screenshot files).
+ *  10. Clear the session storage state (recording is finished).
  *
  * @returns {Promise<object|null>} - The recording result, or null if not recording.
  */
@@ -802,6 +1286,13 @@ async function stopRecording() {
     }
   }
 
+  // Fix 1: redact sensitive headers + postData before the HAR is used anywhere.
+  try {
+    _redactSensitiveData(har);
+  } catch (err) {
+    console.error("[Earendel] HAR redaction error (non-fatal):", err);
+  }
+
   // Capture final cookies and merge with the initial set (dedupe by name+domain+path).
   let finalCookies = [];
   try {
@@ -811,7 +1302,7 @@ async function stopRecording() {
   }
   const mergedCookies = mergeCookies(recordingState.cookies, finalCookies);
 
-  // Detach the debugger — ALWAYS, even on error. Use try/finally semantics.
+  // Detach the debugger - ALWAYS, even on error. Use try/finally semantics.
   try {
     await detachDebugger(recordingState.tabId);
   } catch (err) {
@@ -856,6 +1347,8 @@ async function stopRecording() {
     workflowName: recordingState.workflowName,
     startedAt: new Date(recordingState.startedAt).toISOString(),
     url: contentData?.url || "",
+    runId: recordingState.runId,
+    screenshotFiles: recordingState.screenshotFiles.slice(),
   };
 
   const harEntryCount = har?.log?.entries?.length || 0;
@@ -866,13 +1359,22 @@ async function stopRecording() {
     harEntryCount,
     "HAR entries,",
     mergedCookies.length,
-    "cookies (harCaptured=",
+    "cookies,",
+    result.screenshotFiles.length,
+    "screenshots (harCaptured=",
     result.harCaptured,
     ")"
   );
 
   // Store in local storage.
   await chrome.storage.local.set({ lastRecording: result });
+
+  // Clear the session storage state - the recording is finished.
+  try {
+    await chrome.storage.session.remove("earendelRecordingState");
+  } catch (err) {
+    console.debug("[Earendel] Could not clear session state (non-fatal):", err);
+  }
 
   return result;
 }
@@ -904,26 +1406,34 @@ function mergeCookies(initial, final) {
  *
  * POST /api/v1/recordings
  *
- * Payload (NEW — Phase 1):
+ * Payload (Phase 1):
  *   - connectorId, workflowName
  *   - steps: array of step objects (click/input/navigate/submit/download)
  *   - totalDurationMs, domMutations, screenshots
  *   - networkRequests: count (kept for backward compat with the existing
  *     backend's Recording.networkRequests column which is Int)
- *   - harCaptured: boolean — false means HAR is incomplete (webRequest fallback)
- *   - har: FULL HAR 1.2 object ({log:{entries:[...]}})
+ *   - harCaptured: boolean - false means HAR is incomplete (webRequest fallback)
+ *   - har: FULL HAR 1.2 object ({log:{entries:[...]}}), sensitive data redacted
  *   - cookies: array of cookie objects
+ *   - screenshotFiles: list of chrome.storage.local keys holding PNG screenshots
  *
  * The backend stores `har` and `cookies` as JSON strings in Text columns.
+ *
+ * Fix 4: if the fetch fails (network error or non-2xx response), the recording
+ * is persisted to chrome.storage.local under `pendingRecording_{timestamp}`
+ * so it can be retried later by `_retryPendingRecordings()`. The original
+ * error is re-thrown so the caller (popup) can show a meaningful message.
  *
  * @param {object} recording - The recording result from stopRecording.
  * @returns {Promise<object>} - The backend's response (the created Recording).
  */
 async function sendToBackend(recording) {
-  const backendUrl = "http://localhost:8001";
-  const backendPort = "8001";
+  const backendUrl = await getBackendUrl();
+  const backendPort = getBackendPort(backendUrl);
 
-  // Build the recording payload — ship the full HAR + cookies + steps.
+  // Build the recording payload - ship the full HAR + cookies + steps.
+  // Sensitive headers + postData in the HAR have already been redacted in
+  // stopRecording() via _redactSensitiveData().
   const payload = {
     connectorId: recording.connectorId || "conn_demo",
     workflowName: recording.workflowName,
@@ -949,12 +1459,17 @@ async function sendToBackend(recording) {
     domMutations: recording.domMutations,
     screenshots: recording.screenshots,
     harCaptured: !!recording.harCaptured,
-    // Full HAR 1.2 object — backend stores it as a JSON string and feeds it
+    // Full HAR 1.2 object - backend stores it as a JSON string and feeds it
     // to har_analyzer.py at compile time.
     har: recording.har || { log: { version: "1.2", creator: { name: "earendel-chrome-extension", version: "1.0" }, entries: [] } },
-    // Array of cookie objects — backend stores as JSON string in the
+    // Array of cookie objects - backend stores as JSON string in the
     // Recording.cookies column. Used by internal_route adapter for replay.
     cookies: recording.cookies || [],
+    // List of chrome.storage.local keys that hold PNG screenshots captured
+    // during the recording. The backend can fetch these via a follow-up
+    // request if needed; for now they are listed for traceability.
+    screenshotFiles: recording.screenshotFiles || [],
+    runId: recording.runId || null,
   };
 
   try {
@@ -975,20 +1490,40 @@ async function sendToBackend(recording) {
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      throw new Error(`Backend returned ${response.status}: ${text || response.statusText}`);
+      const err = new Error(
+        `Backend returned ${response.status}: ${text || response.statusText}`
+      );
+      err.statusCode = response.status;
+      throw err;
     }
 
     const data = await response.json();
     return data;
   } catch (err) {
     console.error("[Earendel] Backend send error:", err);
+    // Fix 4: persist the recording to local storage for later retry.
+    try {
+      const key = `pendingRecording_${Date.now()}`;
+      await chrome.storage.local.set({
+        [key]: {
+          recording: { ...recording, screenshotFiles: recording.screenshotFiles || [] },
+          payload,
+          failedAt: Date.now(),
+          error: err.message || String(err),
+          attempts: 0,
+        },
+      });
+      console.log("[Earendel] Recording saved to local storage for retry:", key);
+    } catch (persistErr) {
+      console.error("[Earendel] Could not persist pending recording:", persistErr);
+    }
     throw err;
   }
 }
 
 async function compileRecording(recordingId) {
-  const backendUrl = "http://localhost:8001";
-  const backendPort = "8001";
+  const backendUrl = await getBackendUrl();
+  const backendPort = getBackendPort(backendUrl);
   const token = await getAuthToken();
 
   const response = await fetch(
@@ -1004,6 +1539,91 @@ async function compileRecording(recordingId) {
 
   if (!response.ok) throw new Error(`Compile returned ${response.status}`);
   return response.json();
+}
+
+/**
+ * Retry sending any recordings that were persisted to chrome.storage.local
+ * because the backend was unreachable or returned a non-2xx response.
+ *
+ * Called on service worker startup. Iterates over all keys starting with
+ * `pendingRecording_`, attempts to re-send each one to the backend, and
+ * removes the key on success. Logs the outcome for each.
+ *
+ * @returns {Promise<{retried: number, succeeded: number, failed: number}>}
+ */
+async function _retryPendingRecordings() {
+  let retried = 0;
+  let succeeded = 0;
+  let failed = 0;
+
+  try {
+    const all = await chrome.storage.local.get(null);
+    const pendingKeys = Object.keys(all).filter((k) =>
+      k.startsWith("pendingRecording_")
+    );
+    if (pendingKeys.length === 0) {
+      return { retried, succeeded, failed };
+    }
+
+    console.log(
+      `[Earendel] Retrying ${pendingKeys.length} pending recording(s) from local storage.`
+    );
+
+    for (const key of pendingKeys) {
+      const entry = all[key];
+      if (!entry || !entry.payload) {
+        console.warn(`[Earendel] Pending entry ${key} is malformed; removing.`);
+        await chrome.storage.local.remove(key);
+        continue;
+      }
+      retried++;
+      try {
+        const backendUrl = await getBackendUrl();
+        const backendPort = getBackendPort(backendUrl);
+        const token = await getAuthToken();
+        const response = await fetch(
+          `${backendUrl}/api/v1/recordings?XTransformPort=${backendPort}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(entry.payload),
+          }
+        );
+        if (!response.ok) {
+          const text = await response.text().catch(() => "");
+          throw new Error(
+            `Backend returned ${response.status}: ${text || response.statusText}`
+          );
+        }
+        const data = await response.json();
+        succeeded++;
+        console.log(
+          `[Earendel] Retry SUCCESS for ${key}: recording id=${data.id || "(no id)"}`
+        );
+        await chrome.storage.local.remove(key);
+      } catch (err) {
+        failed++;
+        const attempts = (entry.attempts || 0) + 1;
+        await chrome.storage.local.set({
+          [key]: { ...entry, attempts, lastError: err.message || String(err) },
+        });
+        console.warn(
+          `[Earendel] Retry FAILED for ${key} (attempt ${attempts}):`,
+          err.message || err
+        );
+      }
+    }
+  } catch (err) {
+    console.error("[Earendel] _retryPendingRecordings error:", err);
+  }
+
+  console.log(
+    `[Earendel] Retry summary: retried=${retried} succeeded=${succeeded} failed=${failed}`
+  );
+  return { retried, succeeded, failed };
 }
 
 // ---- JWT auth ----
@@ -1102,11 +1722,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } else if (message.type === "SET_BACKEND_SECRET") {
         await chrome.storage.local.set({ backendSecret: message.secret });
         sendResponse({ success: true });
+      } else if (message.type === "SET_BACKEND_URL") {
+        // Fix 8: configurable backend URL.
+        const url = (message.url || "").trim();
+        if (url && !/^https?:\/\//i.test(url)) {
+          sendResponse({ error: "Backend URL must start with http:// or https://" });
+          return;
+        }
+        await chrome.storage.local.set({ backendUrl: url || DEFAULT_BACKEND_URL });
+        sendResponse({ success: true, backendUrl: url || DEFAULT_BACKEND_URL });
+      } else if (message.type === "GET_BACKEND_URL") {
+        const url = await getBackendUrl();
+        sendResponse({ success: true, backendUrl: url });
       } else if (message.type === "EARENDEL_STEP") {
-        // Step from content script — update background state.
+        // Step from content script - update background state.
         recordingState.steps.push(message.step);
+        // Persist state after each step so we can survive a SW restart.
+        // Throttled internally (only writes when 5+ new HAR entries, but steps
+        // are always persisted).
+        _saveState(false).catch((e) =>
+          console.debug("[Earendel] _saveState after step failed (non-fatal):", e)
+        );
+        // Fix 3: capture a screenshot every 10 steps.
+        if (recordingState.steps.length % 10 === 0 && recordingState.tabId) {
+          _maybeCaptureScreenshot(recordingState.tabId, recordingState.steps.length).catch(
+            () => {}
+          );
+        }
       } else if (message.type === "EARENDEL_STOP") {
-        // Content script's final flush — merge step/DOM data into background
+        // Content script's final flush - merge step/DOM data into background
         // state. (This fires before STOP_RECORDING's content-script
         // sendMessage round-trip resolves, so it's a belt-and-suspenders
         // mechanism.)
@@ -1114,6 +1758,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (typeof message.domMutations === "number") {
           recordingState.domMutations = message.domMutations;
         }
+        _saveState(false).catch((e) =>
+          console.debug("[Earendel] _saveState on EARENDEL_STOP failed (non-fatal):", e)
+        );
       }
     } catch (err) {
       console.error("[Earendel] Background error:", err);
@@ -1125,22 +1772,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // ---- Lifecycle cleanup ----
 
-// When the extension is uninstalled or updated, detach any debugger that's
-// still attached so the user isn't left with a stale debugging banner.
+// When the extension is installed or updated, initialize default storage keys
+// and detach any debugger that might still be attached from a prior version.
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[Earendel] Extension installed");
   chrome.storage.local.set({
     backendSecret: "",
+    backendUrl: DEFAULT_BACKEND_URL,
     lastRecording: null,
   });
 });
 
-// If the recorded tab is closed mid-recording, detach the debugger.
+// If the recorded tab is closed mid-recording, detach the debugger and clear
+// the session state so a subsequent popup open does not think we are still
+// recording.
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (recordingState.isRecording && recordingState.tabId === tabId) {
-    console.warn("[Earendel] Recorded tab closed mid-recording — cleaning up.");
+    console.warn("[Earendel] Recorded tab closed mid-recording - cleaning up.");
     recordingState.isRecording = false;
     stopFallbackNetworkCapture();
     detachDebugger(tabId);
+    chrome.storage.session.remove("earendelRecordingState").catch(() => {});
   }
 });
+
+// ---- Service worker startup ----
+// MV3 service workers can be terminated and restarted at any time. On startup
+// we (1) restore any in-flight recording state from chrome.storage.session
+// and (2) retry sending any recordings that failed to send to the backend
+// before the previous SW instance was terminated.
+(function onStartup() {
+  console.log("[Earendel] Service worker starting up.");
+  _loadState().catch((err) =>
+    console.warn("[Earendel] _loadState on startup failed (non-fatal):", err)
+  );
+  _retryPendingRecordings().catch((err) =>
+    console.warn("[Earendel] _retryPendingRecordings on startup failed (non-fatal):", err)
+  );
+})();

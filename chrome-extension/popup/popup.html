@@ -212,9 +212,68 @@
     .step-type-input { background: rgba(201,166,107,0.2); color: #D9B97A; }
     .step-type-download { background: rgba(139,111,90,0.3); color: #C49A7E; }
     .step-type-submit { background: rgba(181,69,74,0.2); color: #D88A8D; }
+    .step-type-file_upload { background: rgba(107,88,118,0.25); color: #B8A6C4; }
+    .step-type-scroll { background: rgba(165,161,155,0.15); color: #C9C5BF; }
+    .step-type-keydown { background: rgba(122,133,72,0.15); color: #B9C77E; }
+    .step-type-resize { background: rgba(165,161,155,0.15); color: #C9C5BF; }
+    /* Consent notice (Fix 7) */
+    .consent-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(31,26,23,0.92);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 100;
+    }
+    .consent-card {
+      background: #2C2722;
+      border: 1px solid #42403D;
+      border-radius: 12px;
+      padding: 16px;
+      max-width: 320px;
+      width: 100%;
+    }
+    .consent-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 18px;
+      font-weight: 500;
+      margin-bottom: 8px;
+      color: #E8E0D4;
+    }
+    .consent-body {
+      font-size: 12px;
+      line-height: 1.5;
+      color: #C9C5BF;
+      margin-bottom: 12px;
+    }
+    .consent-body strong { color: #E8E0D4; }
+    .revoke-link {
+      font-size: 11px;
+      color: #6B5876;
+      cursor: pointer;
+      text-decoration: underline;
+      margin-top: 8px;
+      display: inline-block;
+    }
   </style>
 </head>
 <body>
+  <!-- Consent notice (Fix 7): shown until the user accepts it once -->
+  <div class="consent-overlay" id="consent-overlay" style="display:none;">
+    <div class="consent-card">
+      <div class="consent-title">Before we begin</div>
+      <div class="consent-body">
+        <strong>Earendel Recorder</strong> will capture your clicks, inputs,
+        network traffic, and cookies on this tab. Passwords are masked.
+        Sensitive headers are redacted. Click <strong>"I Understand"</strong>
+        to continue.
+      </div>
+      <button class="btn btn-primary" id="consent-accept-btn">I Understand</button>
+    </div>
+  </div>
+
   <div class="header">
     <span class="logo">🔭</span>
     <span class="title">Earendel</span>
@@ -290,9 +349,19 @@
   <span class="setup-link" id="setup-link">⚙ Backend settings</span>
   <div class="setup-panel" id="setup-panel">
     <div class="divider"></div>
-    <label class="label" for="backend-secret">Backend Secret (JWT)</label>
-    <input type="password" id="backend-secret" placeholder="BACKEND_SECRET from .env">
-    <button class="btn btn-outline" id="save-secret-btn" style="margin-top:8px;">Save</button>
+    <label class="label" for="backend-url">Backend URL</label>
+    <input type="text" id="backend-url" placeholder="http://localhost:8001" value="http://localhost:8001">
+    <button class="btn btn-outline" id="save-url-btn" style="margin-top:8px;">Save URL</button>
+
+    <div style="margin-top:12px;">
+      <label class="label" for="backend-secret">Backend Secret (JWT)</label>
+      <input type="password" id="backend-secret" placeholder="BACKEND_SECRET from .env">
+      <button class="btn btn-outline" id="save-secret-btn" style="margin-top:8px;">Save</button>
+    </div>
+
+    <div style="margin-top:12px;">
+      <span class="revoke-link" id="revoke-consent-link">Revoke recording consent</span>
+    </div>
   </div>
 
   <script src="popup/popup.js"></script>

@@ -1,4 +1,4 @@
-# Earendel Chrome Extension — Real Workflow Recorder
+# Earendel Chrome Extension - Real Workflow Recorder
 
 ## Installation
 
@@ -43,7 +43,7 @@
 ## Security
 
 - **Manifest V3** (latest Chrome extension standard)
-- **CSP**: `script-src 'self'; object-src 'self'` — no inline scripts, no eval
+- **CSP**: `script-src 'self'; object-src 'self'` - no inline scripts, no eval
 - **Content script isolation**: runs in isolated world, no access to page JS
 - **Password masking**: password fields are never captured in plaintext
 - **No request/response bodies**: network capture stores only URL + method

@@ -1,5 +1,5 @@
 /**
- * Earendel Recorder — Content Script
+ * Earendel Recorder - Content Script
  *
  * Injected into every page. Listens for user interactions (clicks, inputs,
  * navigation, downloads) and captures them as structured steps. Also captures
@@ -9,7 +9,7 @@
  *   - No eval(), no Function(), no innerHTML with user data
  *   - Form passwords are masked (never captured in plaintext)
  *   - All data is sanitized before sending to the background script
- *   - Content script runs in an isolated world — no access to page JS
+ *   - Content script runs in an isolated world - no access to page JS
  */
 
 (function () {
@@ -223,6 +223,179 @@
     });
   }
 
+  // ---- File upload capture (Fix 6) ----
+  // Capture the file NAME(S) only - never the file content - when the user
+  // selects files via an <input type="file">. We listen on the change event
+  // which fires after the user has picked file(s) from the OS dialog.
+
+  function handleFileChange(event) {
+    if (!isRecording) return;
+    const input = event.target;
+    if (!input || input.tagName !== "INPUT" || input.type !== "file") return;
+    if (input.closest("[data-earendel-ui]")) return;
+
+    const files = input.files;
+    if (!files || files.length === 0) return;
+
+    const fileNames = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      // Only capture name + size + type. Never the binary content.
+      fileNames.push({
+        name: f.name,
+        size: f.size,
+        type: f.type || null,
+        lastModified: f.lastModified || null,
+      });
+    }
+
+    const selector = generateSelector(input);
+    addStep({
+      type: "file_upload",
+      description:
+        fileNames.length === 1
+          ? `Upload file: ${fileNames[0].name}`
+          : `Upload ${fileNames.length} files: ${fileNames
+              .map((f) => f.name)
+              .join(", ")
+              .slice(0, 80)}`,
+      selector: selector,
+      files: fileNames, // names + metadata only - no content
+      tagName: "input",
+      url: window.location.href,
+      timestamp: Date.now(),
+    });
+  }
+
+  // ---- Scroll capture (Fix 6) ----
+  // Debounced: we record the scroll position at most once per 500ms while the
+  // user is actively scrolling. We capture both window scroll and the scroll
+  // position of the closest scrollable ancestor of the event target.
+
+  let scrollDebounceTimer = null;
+  let lastScrollTarget = null;
+
+  function handleScroll(event) {
+    if (!isRecording) return;
+    // Determine the scroll container. Default to window/document.
+    const target = event.target || document;
+    let scrollX = 0;
+    let scrollY = 0;
+    let selector = null;
+
+    if (target === document || target === window || target === document.body) {
+      scrollX = window.scrollX || window.pageXOffset || 0;
+      scrollY = window.scrollY || window.pageYOffset || 0;
+    } else if (target.nodeType === Node.ELEMENT_NODE) {
+      scrollX = target.scrollLeft || 0;
+      scrollY = target.scrollTop || 0;
+      // Only generate a selector for non-window scrolls so we know which
+      // container was scrolled.
+      if (target !== document.body && target !== document.documentElement) {
+        selector = generateSelector(target);
+      }
+    } else {
+      return;
+    }
+
+    // Skip tiny scrolls (< 10px) to avoid noise.
+    if (
+      lastScrollTarget === target &&
+      Math.abs((lastScrollTarget?._earendelLastY || 0) - scrollY) < 10 &&
+      Math.abs((lastScrollTarget?._earendelLastX || 0) - scrollX) < 10
+    ) {
+      return;
+    }
+    if (target && target.nodeType === Node.ELEMENT_NODE) {
+      target._earendelLastY = scrollY;
+      target._earendelLastX = scrollX;
+    }
+    lastScrollTarget = target;
+
+    // Debounce: clear the previous timer and set a new one so we only record
+    // the final scroll position after the user stops scrolling for 500ms.
+    if (scrollDebounceTimer) clearTimeout(scrollDebounceTimer);
+    const capturedX = scrollX;
+    const capturedY = scrollY;
+    const capturedSelector = selector;
+    scrollDebounceTimer = setTimeout(() => {
+      if (!isRecording) return;
+      addStep({
+        type: "scroll",
+        description: `Scroll to (${Math.round(capturedX)}, ${Math.round(capturedY)})`,
+        selector: capturedSelector,
+        scrollX: capturedX,
+        scrollY: capturedY,
+        url: window.location.href,
+        timestamp: Date.now(),
+      });
+    }, 500);
+  }
+
+  // ---- Keydown capture (Fix 6) ----
+  // We only capture navigation/action keys (Enter, Tab, Escape) - NOT all
+  // keys - to avoid logging passwords or other sensitive keystrokes. The
+  // target element is identified by selector; for password fields we mask
+  // the key name as "key in password field".
+
+  function handleKeydown(event) {
+    if (!isRecording) return;
+    const key = event.key;
+    // Only capture the navigation/action keys specified in Fix 6.
+    if (key !== "Enter" && key !== "Tab" && key !== "Escape") return;
+
+    const el = event.target;
+    if (el && el.closest && el.closest("[data-earendel-ui]")) return;
+
+    const isPassword = el && el.tagName === "INPUT" && el.type === "password";
+    const selector = el && el.nodeType === Node.ELEMENT_NODE
+      ? generateSelector(el)
+      : null;
+
+    let description;
+    if (key === "Enter") {
+      description = isPassword ? "Press Enter in password field" : "Press Enter";
+    } else if (key === "Tab") {
+      description = `Press Tab${event.shiftKey ? " + Shift" : ""}`;
+    } else {
+      description = "Press Escape";
+    }
+
+    addStep({
+      type: "keydown",
+      description: description,
+      selector: selector,
+      key: key,
+      shiftKey: !!event.shiftKey,
+      ctrlKey: !!event.ctrlKey,
+      metaKey: !!event.metaKey,
+      altKey: !!event.altKey,
+      isPassword: isPassword,
+      tagName: el && el.tagName ? el.tagName.toLowerCase() : null,
+      url: window.location.href,
+      timestamp: Date.now(),
+    });
+  }
+
+  // ---- Window resize capture (Fix 6) ----
+
+  let resizeDebounceTimer = null;
+  function handleResize() {
+    if (!isRecording) return;
+    if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
+    resizeDebounceTimer = setTimeout(() => {
+      if (!isRecording) return;
+      addStep({
+        type: "resize",
+        description: `Window resized to ${window.innerWidth}x${window.innerHeight}`,
+        width: window.innerWidth,
+        height: window.innerHeight,
+        url: window.location.href,
+        timestamp: Date.now(),
+      });
+    }, 500);
+  }
+
   // DOM mutation observer
   let mutationObserver = null;
   function startMutationObserver() {
@@ -411,7 +584,7 @@
         domMutations: domMutations,
       });
     } else if (message.type === "EARENDEL_STEP") {
-      // Step from this content script — update indicator
+      // Step from this content script - update indicator
       updateIndicator(message.totalSteps);
     }
     return true; // Keep channel open for async response
@@ -464,6 +637,22 @@
     },
     true
   );
+
+  // ---- Fix 6: additional event listeners ----
+
+  // File upload: capture file NAME(S) only, never content.
+  document.addEventListener("change", handleFileChange, true);
+
+  // Scroll: debounced (500ms) capture of scroll position. We attach to
+  // window with capture=true so we catch scrolls on any nested scrollable
+  // element as well (the event target is the scrollable container).
+  window.addEventListener("scroll", handleScroll, true);
+
+  // Keydown: only Enter / Tab / Escape (navigation + action keys).
+  document.addEventListener("keydown", handleKeydown, true);
+
+  // Window resize: debounced (500ms) capture of new width/height.
+  window.addEventListener("resize", handleResize);
 
   console.log("[Earendel] Recorder content script loaded");
 })();
