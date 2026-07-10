@@ -291,8 +291,17 @@
   <!-- Recording controls -->
   <div class="section" id="recording-controls">
     <div>
-      <label class="label" for="connector-name">Connector</label>
-      <input type="text" id="connector-name" placeholder="e.g. Stripe API" value="Stripe API">
+      <label class="label" for="connector-select">Connector</label>
+      <!-- Populated dynamically by loadConnectors() in popup.js -->
+      <select id="connector-select">
+        <option value="">Loading connectors...</option>
+      </select>
+      <!-- Fallback text input shown only when the backend is unreachable
+           so the user can still type a connector ID manually. -->
+      <input type="text" id="connector-fallback" placeholder="Enter connector ID (e.g. conn_stripe)" style="display:none; margin-top:8px;">
+      <div id="connector-warning" class="error" style="display:none; margin-top:8px;">
+        Could not reach the backend to load connectors. Enter a connector ID manually above, or check the backend URL in settings.
+      </div>
     </div>
     <div style="margin-top: 8px;">
       <label class="label" for="workflow-name">Workflow</label>

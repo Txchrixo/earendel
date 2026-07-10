@@ -23,6 +23,7 @@ import { useStudio } from "@/lib/earendel/store";
 import type { StudioView } from "@/lib/earendel/types";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
+import { useSession } from "next-auth/react";
 
 interface NavItem {
   id: StudioView;
@@ -142,6 +143,10 @@ function Header() {
   const setView = useStudio((s) => s.setView);
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const meta = VIEW_META[view] ?? VIEW_META.dashboard;
+  // Use the real NextAuth session email when available; fall back to the
+  // demo address so the dropdown still has a label in unauthenticated mode.
+  const { data: session } = useSession();
+  const accountLabel = session?.user?.email || "demo@earendel.io";
 
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-background px-4">
@@ -217,7 +222,7 @@ function Header() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuLabel>demo@earendel.io</DropdownMenuLabel>
+          <DropdownMenuLabel>{accountLabel}</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => { setView("dashboard"); toast.info("Opening dashboard"); }}>
             <Icon name="dashboard" size={14} aria-hidden /> Dashboard

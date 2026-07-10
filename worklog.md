@@ -2211,3 +2211,121 @@ No em dashes introduced in any edited file.
 - Backend payload shape is unchanged (same fields, same types); only
   added `screenshotFiles` and `runId` as new top-level fields (additive,
   backward compatible).
+
+## Session: fix publishing fake URLs + auth + account
+
+### Fix 1: Publishing fake URLs (CRITICAL)
+File: `src/components/earendel/views/publishing-sections.tsx`
+- RestTab: replaced the fake per-action endpoint (`tool.restEndpoint`,
+  which was `https://api.earendel.io/v1/actions/{id}/run` and does not
+  exist) with the real canonical run endpoint `POST /api/v1/executions`.
+  The displayed path, curl example, request body schema, sample
+  response, and a new "request body for this action" card all use the
+  real shape `{actionId, inputs}`.
+- SdkTab: removed the fake `@earendel/sdk` and `earendel-sdk` snippets
+  (those packages do not exist). Added a "SDK packages are planned"
+  banner with the note "SDK packages are planned. Use the REST API or
+  MCP server for now." The TS and Python snippets now call
+  `POST /api/v1/executions` directly via fetch / requests, with the
+  real `{actionId, inputs}` body.
+- WebhookTab: removed the fake webhook URL (`tool.webhookUrl`, which was
+  `https://api.earendel.io/v1/webhooks/{action.id}` and does not exist)
+  plus the n8n / Zapier / Make integration cards. Replaced with a
+  single "Coming soon" card explaining that no webhook route exists
+  yet and pointing at `GET /api/v1/executions/{executionId}` and the
+  SSE stream as the current alternatives.
+
+### Fix 2: Account dropdown hardcoded email (MAJOR)
+File: `src/components/earendel/app-shell.tsx`
+- Added `import { useSession } from "next-auth/react"`.
+- In `Header()`, added `const { data: session } = useSession()` and
+  `const accountLabel = session?.user?.email || "demo@earendel.io"`.
+- Replaced the hardcoded `<DropdownMenuLabel>demo@earendel.io</DropdownMenuLabel>`
+  with `<DropdownMenuLabel>{accountLabel}</DropdownMenuLabel>`.
+- Net effect: when the user is logged in via NextAuth, their real email
+  shows; in demo / unauthenticated mode, the `demo@earendel.io` fallback
+  still appears.
+
+### Fix 3: Auth router fake tokens (CRITICAL)
+Files: `backend/app/modules/auth/router.py`, `backend/app/modules/auth/service.py`
+- router.py: added `_mint_jwt(user_id, email)` which mints a real HS256
+  JWT signed with `BACKEND_SECRET` (shared with the FastAPI auth
+  middleware and NextAuth), with `iss="earendel-studio"`,
+  `aud="earendel-api"`, `iat=now`, `exp=now+7d`. The register and login
+  endpoints now return `{"user": user, "token": _mint_jwt(...)}` instead
+  of the fake `f"demo-token-{user['id']}"` string that the middleware
+  rejected.
+- router.py: added `_user_from_authorization(authorization)` that
+  manually decodes the Bearer JWT on the public `/auth/session` endpoint
+  (which is in `PUBLIC_PREFIXES` and so skipped by the middleware).
+  `session_endpoint` now passes the extracted user (or None) to
+  `service.current_session`.
+- service.py: replaced SHA-256 password hashing with bcrypt
+  (`bcrypt.hashpw(password.encode(), bcrypt.gensalt(12)).decode()`),
+  plus a `_verify_password` helper using `bcrypt.checkpw`.
+- service.py: `login()` now requires the stored hash to start with `$2`
+  (bcrypt prefix); legacy SHA-256 hashes are rejected (user must reset).
+- service.py: `current_session(current_user=None)` returns the real
+  user's session when a verified caller is available, and falls back to
+  the hardcoded demo session (with a comment explaining it is the demo
+  fallback used when /auth/session is called without a JWT) otherwise.
+
+### Fix 4: API adapter _simulate fallback (CRITICAL)
+File: `backend/app/adapters/api_adapter.py`
+- `_simulate()` now emits a `level="warn"` TraceEvent as the first entry
+  in the trace list, with message
+  `"no endpoint mapped for action '{action.name}' - using simulation"`,
+  before the existing simulated request/response/validation traces.
+- The simulation still returns `success=True` with the deterministic
+  `_simulate_outputs(action, inputs)` so postconditions pass and the
+  orchestrator doesn't break, but the trace now clearly flags that the
+  outputs are synthetic. This applies to any action not in the 6-name
+  `_ENDPOINT_REGISTRY`, including new user-recorded workflows.
+- Also replaced 2 pre-existing em dashes in the module docstring /
+  comment with regular hyphens to comply with the no-em-dash rule.
+
+### Fix 5: MTTR synthetic (CRITICAL)
+File: `backend/app/modules/monitoring/repair_kb_router.py`
+- Removed the synthetic MTTR formula `max(200, 1200 - 80 * success_count)`
+  and the empty-KB "monotonically improving" fallback that fabricated a
+  flywheel-accelerating curve when no real data was available.
+- `stats_endpoint` now returns `mttrMs: null` for every bucket in the
+  7-day trend (real MTTR requires incident-start vs incident-resolved
+  timestamp pairs, which the RepairKnowledge row does not store yet).
+- Added a `mttrNote: "MTTR tracking requires incident timestamps (planned)"`
+  field to the stats response so the UI can surface the limitation
+  rather than hiding it.
+- Removed the now-unused `mttr_trend_filled` helper and `_parse_iso`
+  helper (the latter was only used by the removed synthetic bucketing),
+  plus the unused `timezone` import.
+- Replaced all em dashes in the module docstring with regular hyphens.
+- The frontend (`repair-kb-view.tsx`) already supports `mttrMs: null`
+  and renders a "No repair outcomes yet" placeholder when every point
+  is null, so this change is backward-compatible.
+
+### Verification
+- `cd /home/z/my-project && bun run lint` passes (eslint . with no
+  errors).
+- `cd /home/z/my-project/backend && python3 -c "from app.main import app;
+  print('OK')"` prints `OK`.
+- `cd /home/z/my-project/backend && python3 -m pytest tests/ -x -q`
+  passes: 393 passed, 5 skipped (warnings are pre-existing
+  `datetime.utcnow()` deprecations unrelated to these changes).
+- Direct round-trip checks:
+  - `_mint_jwt` produces a real 3-part HS256 JWT that the auth
+    middleware's `verify_token` accepts (returns the decoded payload
+    with `uid` and `email`).
+  - `_user_from_authorization` correctly rejects bad tokens and missing
+    headers.
+  - bcrypt `_hash_password` / `_verify_password` verify correct
+    passwords and reject wrong ones.
+  - `current_session` returns the real user when a JWT is supplied and
+    the demo fallback otherwise.
+  - `_simulate` emits exactly one `level="warn"` trace with the expected
+    message before the simulated outputs.
+  - `stats_endpoint` returns 7 trend points all with `mttrMs: null` and
+    the `mttrNote` field.
+- No em dashes (U+2014) in any of the 6 edited files
+  (`publishing-sections.tsx`, `app-shell.tsx`, `router.py`, `service.py`,
+  `api_adapter.py`, `repair_kb_router.py`). Pre-existing em dashes in
+  files touched by this session were also replaced with hyphens.

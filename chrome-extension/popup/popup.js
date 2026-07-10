@@ -100,6 +100,125 @@
     stepsPreview.scrollTop = stepsPreview.scrollHeight;
   }
 
+  // ---- Connector selector ----
+  //
+  // Previously the popup sent a hardcoded connectorId of "conn_demo" to the
+  // backend on every recording, which meant the user's typed "Connector name"
+  // was silently ignored. We now fetch the real list of connectors from the
+  // backend and let the user pick one from a dropdown. If the backend is
+  // unreachable (e.g. not running yet), we fall back to a manual text input
+  // so the user can still type a connector ID.
+
+  /**
+   * Mint a short-lived JWT for backend auth, mirroring the implementation in
+   * the service worker (background/service-worker.js:getAuthToken). The
+   * extension stores BACKEND_SECRET in chrome.storage.local during setup, and
+   * the backend accepts a JWT signed with that shared secret.
+   *
+   * @returns {Promise<string>} a JWT string suitable for an Authorization header
+   */
+  async function getAuthToken() {
+    const { backendSecret } = await chrome.storage.local.get("backendSecret");
+    if (!backendSecret) {
+      throw new Error("Backend secret not configured. Set it in the extension settings.");
+    }
+
+    const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+    const payload = btoa(
+      JSON.stringify({
+        uid: "chrome-extension",
+        email: "extension@earendel.io",
+        iss: "earendel-studio",
+        aud: "earendel-api",
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 86400,
+      })
+    );
+
+    const data = `${header}.${payload}`;
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(backendSecret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
+    const sig = btoa(String.fromCharCode(...new Uint8Array(signature)))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+
+    return `${data}.${sig}`;
+  }
+
+  /**
+   * Fetch the list of connectors from the backend. Returns an empty array on
+   * any error so the caller can fall back to the manual text input.
+   *
+   * The `XTransformPort` query param tells the backend how to reach the
+   * connector's transform service (the same convention used by SEND_TO_BACKEND
+   * and COMPILE_RECORDING in the service worker).
+   *
+   * @returns {Promise<Array<{id: string, name: string, targetDomain?: string}>>}
+   */
+  async function loadConnectors() {
+    const { backendUrl } = await chrome.storage.local.get("backendUrl");
+    const url = backendUrl || "http://localhost:8001";
+    const port = new URL(url).port || (url.startsWith("https") ? "443" : "80");
+
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${url}/api/v1/connectors?XTransformPort=${port}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return Array.isArray(data) ? data : data.connectors || [];
+    } catch (err) {
+      console.error("[Earendel] Failed to load connectors:", err);
+      return [];
+    }
+  }
+
+  /**
+   * Populate the connector <select> dropdown from loadConnectors(). If the
+   * backend is unreachable (empty list), hide the dropdown and reveal a
+   * manual text input plus a warning so the user can still proceed.
+   */
+  async function populateConnectors() {
+    const connectorSelect = document.getElementById("connector-select");
+    const connectorFallback = document.getElementById("connector-fallback");
+    const connectorWarning = document.getElementById("connector-warning");
+
+    const connectors = await loadConnectors();
+
+    if (connectors.length > 0) {
+      // Success: populate the dropdown and keep the fallback hidden.
+      connectorSelect.innerHTML = "";
+      for (const connector of connectors) {
+        const option = document.createElement("option");
+        option.value = connector.id;
+        option.textContent = `${connector.name} (${connector.targetDomain || "any"})`;
+        connectorSelect.appendChild(option);
+      }
+      connectorSelect.style.display = "";
+      connectorFallback.style.display = "none";
+      connectorWarning.style.display = "none";
+    } else {
+      // Failure: hide the dropdown and show the manual fallback input.
+      connectorSelect.innerHTML = "";
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Backend unavailable - type ID below";
+      connectorSelect.appendChild(placeholder);
+      connectorSelect.style.display = "none";
+      connectorFallback.style.display = "";
+      connectorWarning.style.display = "block";
+    }
+  }
+
   // ---- Fix 7: consent notice ----
 
   /**
@@ -172,7 +291,12 @@
       return;
     }
 
-    const connectorName = document.getElementById("connector-name").value;
+    // Read the selected connector's human-readable label for the recording
+    // metadata. The connector ID itself is sent to the backend at compile
+    // time (see the compile-btn handler), not at start time.
+    const connectorSelect = document.getElementById("connector-select");
+    const connectorName =
+      connectorSelect.selectedOptions[0]?.textContent?.trim() || "";
     const workflowName = document.getElementById("workflow-name").value;
 
     const response = await sendMessage("START_RECORDING", {
@@ -236,8 +360,15 @@
     compileBtn.textContent = "Sending to backend...";
 
     try {
-      // Send recording to backend
-      const connectorId = "conn_demo"; // In production, user would select this
+      // Send recording to backend. Use the selected connector ID from the
+      // dropdown; if the backend was unreachable at popup load time the
+      // dropdown is hidden and the user typed an ID into the fallback input
+      // instead, so prefer that. Falls back to "conn_demo" only as a last
+      // resort so the recording still gets persisted somewhere.
+      const connectorId =
+        document.getElementById("connector-fallback").value ||
+        document.getElementById("connector-select").value ||
+        "conn_demo";
       const sendResponse = await sendMessage("SEND_TO_BACKEND", { connectorId });
 
       if (sendResponse?.error) {
@@ -316,6 +447,13 @@
     } catch {
       // Fall back to the default value already in the HTML.
     }
+
+    // Populate the connector dropdown from the backend. Runs after the
+    // backend URL is loaded so it uses the configured URL. If the backend is
+    // unreachable, populateConnectors() will reveal the manual fallback input.
+    populateConnectors().catch((err) =>
+      console.error("[Earendel] populateConnectors failed:", err)
+    );
 
     // Check initial recording status on popup open.
     const status = await sendMessage("GET_STATUS");

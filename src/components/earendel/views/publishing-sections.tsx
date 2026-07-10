@@ -124,7 +124,7 @@ function McpTab({ tool }: { tool: RichPublishedTool }) {
         </div>
         <p className="er-caption text-muted-foreground">
           MCP standardises how LLM apps expose and consume tools. Your action is
-          now callable by any MCP-aware agent — inputs are validated against the
+          now callable by any MCP-aware agent - inputs are validated against the
           published JSON schema, every call is logged as an Execution, and
           outputs match the declared contract.
         </p>
@@ -154,28 +154,56 @@ function RestTab({ tool }: { tool: RichPublishedTool }) {
   const inputs = tool.contract?.inputs ?? [];
   const outputs = tool.contract?.outputs ?? [];
 
+  // The canonical run endpoint is POST /api/v1/executions with body
+  // { actionId, inputs }. There is no per-action REST route; every
+  // published action is invoked through this single endpoint.
+  const endpointPath = "/api/v1/executions";
+  const endpointUrl = `https://api.earendel.io${endpointPath}`;
+
+  const inputsObj = Object.fromEntries(
+    inputs.map((i) => [i.name, sampleValue(i.type)]),
+  );
+  const requestBody = {
+    actionId: tool.actionId,
+    inputs: inputsObj,
+  };
+  const requestBodyJson = JSON.stringify(requestBody, null, 2);
+
   const bodySchema = JSON.stringify(
     {
       type: "object",
-      properties: Object.fromEntries(
-        inputs.map((i) => [i.name, { type: i.type, description: i.description }]),
-      ),
-      required: inputs.filter((i) => i.required).map((i) => i.name),
+      properties: {
+        actionId: { type: "string", description: "Id of the published action to run" },
+        inputs: {
+          type: "object",
+          properties: Object.fromEntries(
+            inputs.map((i) => [i.name, { type: i.type, description: i.description }]),
+          ),
+          required: inputs.filter((i) => i.required).map((i) => i.name),
+        },
+      },
+      required: ["actionId", "inputs"],
     },
     null,
     2,
   );
 
   const sampleResponse = JSON.stringify(
-    Object.fromEntries(outputs.map((o) => [o.name, sampleValue(o.type)])),
+    {
+      executionId: "exe_sample",
+      actionId: tool.actionId,
+      actionName: name,
+      status: "success",
+      outputs: Object.fromEntries(outputs.map((o) => [o.name, sampleValue(o.type)])),
+    },
     null,
     2,
   );
 
-  const curl = `curl -X POST '${tool.restEndpoint}' \\
+  const curl = `curl -X POST '${endpointUrl}' \\
   -H 'Authorization: Bearer $EARENDEL_API_KEY' \\
   -H 'Content-Type: application/json' \\
-  -d '${JSON.stringify(Object.fromEntries(inputs.map((i) => [i.name, sampleValue(i.type)])))}'`;
+  -d '${JSON.stringify(requestBody)}'`;
 
   return (
     <motion.div
@@ -187,11 +215,12 @@ function RestTab({ tool }: { tool: RichPublishedTool }) {
       <Card className="gap-2 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <Badge className="bg-accent text-accent-foreground">POST</Badge>
-          <code className="font-mono text-sm">{tool.restEndpoint}</code>
+          <code className="font-mono text-sm">{endpointPath}</code>
         </div>
         <p className="er-caption text-muted-foreground">
-          Typed REST endpoint for {name}. Returns 200 with the declared output
-          schema or 422 on contract violation.
+          Canonical run endpoint for {name}. POST {"{"}actionId, inputs{"}"} to
+          start an execution; returns the created execution with its outputs
+          (or 422 on contract violation).
         </p>
       </Card>
       <Card className="gap-2 p-4">
@@ -217,6 +246,13 @@ function RestTab({ tool }: { tool: RichPublishedTool }) {
           <CodeBlock code={sampleResponse} language="json" />
         </Card>
       </div>
+      <Card className="gap-2 p-4">
+        <div className="flex items-center gap-2">
+          <Icon name="copy" size={14} aria-hidden />
+          <h4 className="text-sm font-medium">Request body for this action</h4>
+        </div>
+        <CodeBlock code={requestBodyJson} language="json" />
+      </Card>
     </motion.div>
   );
 }
@@ -244,36 +280,57 @@ function sampleValue(type: string): unknown {
 
 function SdkTab({ tool }: { tool: RichPublishedTool }) {
   const name = useActionName(tool);
-  const [lang, setLang] = React.useState<"typescript" | "python">("typescript");
   const inputs = tool.contract?.inputs ?? [];
-  const args = inputs.map((i) => `${i.name}: ${tsType(i.type)}`).join(", ");
-  const callArgs = inputs.map((i) => `${i.name}: ${sampleValue(i.type) as string}`).join(", ");
+  const outputs = tool.contract?.outputs ?? [];
 
-  const ts = `import { Earendel } from '@earendel/sdk';
+  // SDK packages are not published yet. Show the real REST contract
+  // (POST /api/v1/executions) so callers can integrate today.
+  const endpointUrl = "https://api.earendel.io/api/v1/executions";
+  const requestBody = {
+    actionId: tool.actionId,
+    inputs: Object.fromEntries(
+      inputs.map((i) => [i.name, sampleValue(i.type)]),
+    ),
+  };
+  const requestBodyJson = JSON.stringify(requestBody, null, 2);
 
-const client = new Earendel({ apiKey: process.env.EARENDEL_API_KEY });
+  const ts = `// No @earendel/sdk package yet - call the REST endpoint directly.
+// SDK packages are planned. Use the REST API or MCP server for now.
 
-// ${name}(${args})
-const result = await client.actions.${name}({
-  ${inputs.map((i) => `${i.name}: ${JSON.stringify(sampleValue(i.type))}`).join(",\n  ")}
+const res = await fetch("${endpointUrl}", {
+  method: "POST",
+  headers: {
+    "Authorization": \`Bearer \${process.env.EARENDEL_API_KEY}\`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify(${JSON.stringify(requestBody)}),
 });
 
-console.log(result);
-// → { ${tool.contract?.outputs.map((o) => o.name).join(", ")} }`;
+const execution = await res.json();
+console.log(execution.outputs);
+// → { ${outputs.map((o) => o.name).join(", ")} }`;
 
-  const py = `from earendel import Earendel
+  const py = `# No earendel-sdk package yet - call the REST endpoint directly.
+# SDK packages are planned. Use the REST API or MCP server for now.
 
-client = Earendel(api_key=os.environ['EARENDEL_API_KEY'])
+import os, requests
 
-# ${name}(${args})
-result = client.actions.${name}(
-    ${inputs.map((i) => `${i.name}=${JSON.stringify(sampleValue(i.type))}`).join(",\n    ")}
+res = requests.post(
+    "${endpointUrl}",
+    headers={
+        "Authorization": f"Bearer {os.environ['EARENDEL_API_KEY']}",
+        "Content-Type": "application/json",
+    },
+    json=${JSON.stringify(requestBody)},
 )
 
-print(result)
-# → { ${tool.contract?.outputs.map((o) => o.name).join(", ")} }`;
+execution = res.json()
+print(execution["outputs"])
+# → { ${outputs.map((o) => o.name).join(", ")} }`;
 
-  void callArgs;
+  const [lang, setLang] = React.useState<"typescript" | "python">("typescript");
+  const args = inputs.map((i) => `${i.name}: ${tsType(i.type)}`).join(", ");
+  void args;
 
   return (
     <motion.div
@@ -282,11 +339,22 @@ print(result)
       transition={{ duration: 0.2 }}
       className="flex flex-col gap-4"
     >
+      <Card className="gap-2 border-accent/30 bg-accent/5 p-4">
+        <div className="flex items-center gap-2">
+          <Icon name="lightbulb" size={14} className="text-chart-4" aria-hidden />
+          <h4 className="text-sm font-medium">SDK packages are planned</h4>
+        </div>
+        <p className="er-caption text-muted-foreground">
+          SDK packages are planned. Use the REST API or MCP server for now.
+          The snippets below call POST /api/v1/executions, the canonical
+          entry point for running any published action.
+        </p>
+      </Card>
       <Card className="gap-2 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Icon name="code" size={14} aria-hidden />
-            <h4 className="text-sm font-medium">SDK function</h4>
+            <h4 className="text-sm font-medium">Run {name}</h4>
           </div>
           <div className="flex items-center gap-1 rounded-md border border-border p-0.5">
             {(["typescript", "python"] as const).map((l) => (
@@ -304,27 +372,17 @@ print(result)
             ))}
           </div>
         </div>
-        <code className="font-mono text-sm">
-          {name}({args})
-        </code>
-      </Card>
-      <CodeBlock
-        code={lang === "typescript" ? ts : py}
-        language={lang === "typescript" ? "typescript" : "python"}
-      />
-      <Card className="gap-2 border-accent/30 bg-accent/5 p-4">
-        <div className="flex items-center gap-2">
-          <Icon name="package" size={14} className="text-chart-4" aria-hidden />
-          <h4 className="text-sm font-medium">Install</h4>
-        </div>
         <CodeBlock
-          code={
-            lang === "typescript"
-              ? "npm install @earendel/sdk"
-              : "pip install earendel-sdk"
-          }
-          language="bash"
+          code={lang === "typescript" ? ts : py}
+          language={lang === "typescript" ? "typescript" : "python"}
         />
+      </Card>
+      <Card className="gap-2 p-4">
+        <div className="flex items-center gap-2">
+          <Icon name="arrowDown" size={14} aria-hidden />
+          <h4 className="text-sm font-medium">Request body</h4>
+        </div>
+        <CodeBlock code={requestBodyJson} language="json" />
       </Card>
     </motion.div>
   );
@@ -345,37 +403,7 @@ function tsType(t: string): string {
 /* ------------------------------------------------------------------ */
 
 function WebhookTab({ tool }: { tool: RichPublishedTool }) {
-  const samplePayload = JSON.stringify(
-    {
-      event: "action.completed",
-      actionId: tool.actionId,
-      actionName: useActionName(tool),
-      executionId: "exe_sample",
-      status: "success",
-      outputs: Object.fromEntries(
-        (tool.contract?.outputs ?? []).map((o) => [o.name, sampleValue(o.type)]),
-      ),
-      timestamp: new Date().toISOString(),
-    },
-    null,
-    2,
-  );
-
-  const n8n = `1. Open your n8n workspace.
-2. Add a "Webhook" trigger node.
-3. Paste the URL above as the production URL.
-4. Set method = POST, response = JSON.`;
-
-  const zapier = `1. Create a new Zap.
-2. Trigger = "Webhooks by Zapier" → "Catch Hook".
-3. Paste the URL above as the custom webhook URL.
-4. Test trigger to capture the payload shape.`;
-
-  const make = `1. Create a new scenario in Make.
-2. Add a "Custom webhook" module.
-3. Paste the URL above and click "Save".
-4. Run once to capture the schema.`;
-
+  void tool;
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -383,40 +411,18 @@ function WebhookTab({ tool }: { tool: RichPublishedTool }) {
       transition={{ duration: 0.2 }}
       className="flex flex-col gap-4"
     >
-      <Card className="gap-2 p-4">
+      <Card className="gap-2 border-accent/30 bg-accent/5 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <Icon name="link" size={14} className="text-accent" aria-hidden />
-          <code className="font-mono text-sm">{tool.webhookUrl}</code>
+          <Badge variant="outline" className="er-caption">Coming soon</Badge>
         </div>
         <p className="er-caption text-muted-foreground">
-          Trigger this action from any automation platform that supports
-          outbound webhooks.
+          Outbound webhooks for action.completed events are on the roadmap
+          and no webhook route exists yet. For now, poll
+          GET /api/v1/executions/{"{executionId}"} or subscribe to the
+          execution SSE stream for real-time status updates.
         </p>
       </Card>
-      <Card className="gap-2 p-4">
-        <div className="flex items-center gap-2">
-          <Icon name="arrowDown" size={14} aria-hidden />
-          <h4 className="text-sm font-medium">Sample payload</h4>
-        </div>
-        <CodeBlock code={samplePayload} language="json" />
-      </Card>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {[
-          { name: "n8n", icon: "iterations" as ErIconName, body: n8n },
-          { name: "Zapier", icon: "workflow" as ErIconName, body: zapier },
-          { name: "Make", icon: "sync" as ErIconName, body: make },
-        ].map((g) => (
-          <Card key={g.name} className="gap-2 p-4">
-            <div className="flex items-center gap-2">
-              <Icon name={g.icon} size={14} aria-hidden />
-              <h4 className="text-sm font-medium">{g.name}</h4>
-            </div>
-            <pre className="er-scroll max-h-44 overflow-auto whitespace-pre-wrap er-caption text-muted-foreground">
-              {g.body}
-            </pre>
-          </Card>
-        ))}
-      </div>
     </motion.div>
   );
 }

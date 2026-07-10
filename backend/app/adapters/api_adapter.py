@@ -1,4 +1,4 @@
-"""Adapter 1 — Official REST API.
+"""Adapter 1 - Official REST API.
 
 Makes real HTTP calls via httpx.AsyncClient to real public APIs.
 Each action maps to a real API endpoint. Responses are parsed and
@@ -17,7 +17,7 @@ from ..core.domain.entities import TraceEvent, TypedAction
 from ..core.domain.enums import AdapterType
 from .base import AdapterResult, ExecutionContext, ExecutionAdapter
 
-# Real API endpoints — each action maps to a real public API.
+# Real API endpoints - each action maps to a real public API.
 # 4/6 require NO API key. Stripe requires a test key (sk_test_...).
 _ENDPOINT_REGISTRY: dict[str, dict[str, Any]] = {
     "downloadInvoice": {
@@ -286,9 +286,23 @@ class ApiAdapter(ExecutionAdapter):
     async def _simulate(
         self, action: TypedAction, inputs: dict, ctx: ExecutionContext
     ) -> AdapterResult:
-        """Fallback simulation when no endpoint is configured."""
+        """Fallback simulation when no endpoint is configured.
+
+        Used when an action is not in _ENDPOINT_REGISTRY (e.g. a
+        user-recorded workflow). The simulation still returns success
+        so postconditions pass and the orchestrator doesn't break, but
+        we emit a warning trace event so it's clear the outputs are
+        synthetic, not from a real API call.
+        """
         ts = ctx.telemetry.now()
         traces = [
+            TraceEvent(
+                ts=ts,
+                adapter=AdapterType.api,
+                level="warn",
+                message=f"no endpoint mapped for action '{action.name}' - using simulation",
+                step="http.request",
+            ),
             TraceEvent(ts=ts, adapter=AdapterType.api, level="info",
                        message=f"GET /api/v1/{action.name} (simulated)", step="http.request", durationMs=40),
             TraceEvent(ts=ts, adapter=AdapterType.api, level="info",

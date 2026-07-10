@@ -508,6 +508,9 @@ function AgentChat({ actions }: { actions: TypedAction[] }) {
         <div className="flex items-center gap-2">
           <Icon name="hubot" size={14} className="text-accent" aria-hidden />
           <h3 className="er-h3">Agent session</h3>
+          <Badge variant="outline" className="er-caption er-pill-warn">
+            Demo agent
+          </Badge>
         </div>
         <Badge variant="outline" className="er-caption">
           <Icon name="robot" size={10} aria-hidden /> MCP

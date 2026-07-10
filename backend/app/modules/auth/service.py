@@ -1,21 +1,49 @@
-"""Auth — service: session, register, login (demo-grade, Prisma User table)."""
+"""Auth - service: session, register, login (bcrypt-hashed, Prisma User table)."""
 from __future__ import annotations
 
-import hashlib
 from datetime import datetime
 from typing import Any
+
+import bcrypt
 
 from ...infrastructure.prisma_repositories import user_get_by_email, user_put
 from ...shared.ids import new_id
 
 
 def _hash_password(password: str) -> str:
-    """Simple SHA-256 hash (demo-grade — use bcrypt in production)."""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash a password with bcrypt (cost 12). Returns a str for storage."""
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(12)).decode("utf-8")
 
 
-async def current_session() -> dict[str, Any]:
-    """Return a hardcoded demo session (no real auth in this build)."""
+def _verify_password(password: str, password_hash: str) -> bool:
+    """Constant-time verify a password against a stored bcrypt hash."""
+    try:
+        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
+
+
+async def current_session(
+    current_user: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return the current session.
+
+    If a real caller (extracted from the JWT via the router) is available,
+    return that user's session. Otherwise return a hardcoded demo session
+    as a fallback - this is used when /auth/session is called without a
+    valid JWT, since the /api/v1/auth/ prefix is exempt from the auth
+    middleware.
+    """
+    if current_user and current_user.get("uid") and current_user.get("uid") != "demo":
+        return {
+            "user": current_user.get("email", "demo@earendel.io"),
+            "uid": current_user["uid"],
+            "role": "owner",
+            "teams": [],
+            "permissions": ["read", "write", "approve:risk:high"],
+        }
+    # Demo fallback - no authenticated user. The /auth/session endpoint is
+    # public (in PUBLIC_PREFIXES) so it still works without a JWT.
     return {
         "user": "demo@earendel.io",
         "role": "owner",
@@ -49,6 +77,12 @@ async def login(email: str, password: str) -> dict[str, Any] | None:
     u = await user_get_by_email(email)
     if u is None:
         return None
-    if u.get("passwordHash") == _hash_password(password):
+    stored_hash = u.get("passwordHash") or ""
+    # Backward-compat: legacy rows may still carry a SHA-256 hash. If the
+    # value isn't a bcrypt hash ($2b$ prefix) we treat it as invalid so
+    # the user must reset their password rather than silently accepting.
+    if not stored_hash.startswith("$2"):
+        return None
+    if _verify_password(password, stored_hash):
         return {"id": u["id"], "email": u["email"], "name": u.get("name") or u["email"]}
     return None
