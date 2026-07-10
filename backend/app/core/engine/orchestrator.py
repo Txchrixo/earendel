@@ -205,4 +205,16 @@ class Orchestrator:
             "postconditionsMet": post_met,
         })
 
+        # Phase 9: record Prometheus metrics
+        try:
+            from ...infrastructure.observability.metrics import record_execution
+            record_execution(
+                adapter=execution.adapter.value,
+                status=execution.status.value,
+                caller=caller.value,
+                duration_ms=execution.durationMs,
+            )
+        except Exception:
+            pass  # metrics never block execution
+
         return execution

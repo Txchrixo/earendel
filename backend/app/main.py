@@ -67,6 +67,7 @@ PUBLIC_PREFIXES = (
     "/api/v1/health",
     "/api/v1/healthz",
     "/api/v1/readyz",
+    "/api/v1/metrics",
     "/api/v1/auth/",
     "/docs",
     "/openapi",
@@ -236,6 +237,7 @@ async def readyz(registry=Depends(get_action_registry)) -> dict:
             "checks": {
                 "database": "ok",
                 "action_registry": "ok" if actions else "empty",
+                "canary_scheduler": "running" if _canary_scheduler_running() else "stopped",
             },
             "counts": {
                 "connectors": len(connectors),
@@ -247,6 +249,28 @@ async def readyz(registry=Depends(get_action_registry)) -> dict:
             "status": "not_ready",
             "checks": {"database": f"error: {exc}"},
         }
+
+
+def _canary_scheduler_running() -> bool:
+    """Check if the canary scheduler is running (Phase 9 readiness check)."""
+    try:
+        from .core.monitoring.canary_scheduler import get_scheduler_status
+        return get_scheduler_status().get("running", False)
+    except Exception:
+        return False
+
+
+@app.get("/api/v1/metrics")
+async def metrics():
+    """Phase 9 — Prometheus metrics endpoint.
+
+    Exposes counters, histograms, and gauges for observability.
+    Content-Type: text/plain; version=0.0.4 (Prometheus format).
+    """
+    from .infrastructure.observability.metrics import get_metrics
+    from fastapi import Response
+    text, content_type = get_metrics()
+    return Response(content=text, media_type=content_type)
 
 
 @app.get("/api/v1/dashboard/stats")

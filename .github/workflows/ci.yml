@@ -41,7 +41,7 @@ jobs:
 
   # ---- Brique 2: Frontend tests (vitest) ----
   frontend-tests:
-    name: Frontend Tests (69)
+    name: Frontend Tests (73)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,7 +71,7 @@ jobs:
 
   # ---- Brique 3: Backend tests (pytest) ----
   backend-tests:
-    name: Backend Tests (123)
+    name: Backend Tests (361)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -8,3 +8,8 @@ aiosqlite==0.20.0
 httpx==0.28.1
 python-multipart==0.0.20
 slowapi
+prometheus-client
+apscheduler
+scikit-learn
+bcrypt
+PyJWT
